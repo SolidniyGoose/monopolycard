@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monopoly Deal</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="controls">
+        <span id="status">Подключение...</span>
+        <button id="btn-join">Войти в комнату</button>
+        <button id="btn-start" disabled>Начать игру (Сдать карты)</button>
+        <button id="btn-end-turn" disabled>Завершить ход</button>
+        <span id="turn-indicator"></span>
+    </div>
+
+    <div id="game-board">
+        <div id="opponents-zone">
+            <div class="opponent-placeholder">Ожидание игроков...</div>
+        </div>
+
+        <div id="center-zone">
+            <div id="draw-pile" class="deck-slot">
+                <div>Колода</div>
+                <div class="count" id="deck-count">0</div>
+            </div>
+            
+            <div id="action-zone" class="board-section">
+                <div class="section-title">Разыграть действие</div>
+            </div>
+
+            <div id="discard-pile" class="deck-slot">
+                <div>Сброс</div>
+                <div class="count" id="discard-count">0</div>
+            </div>
+        </div>
+
+        <div id="player-zone">
+            <div id="player-board">
+                <div class="board-section" id="player-bank">
+                    <div class="section-title">Ваш Банк</div>
+                    <div class="cards-area" id="bank-cards"></div>
+                </div>
+                <div class="board-section" id="player-properties">
+                    <div class="section-title">Ваша Недвижимость</div>
+                    <div class="cards-area" id="property-cards"></div>
+                </div>
+            </div>
+            
+            <div id="player-hand" class="hand-container"></div>
+        </div>
+    </div>
+
+    <div id="target-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3 id="modal-title">Выберите цель</h3>
+            <div id="modal-body">
+                </div>
+            <button id="btn-cancel-action" class="btn-cancel">Отмена (Вернуть карту)</button>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+</body>
+</html>

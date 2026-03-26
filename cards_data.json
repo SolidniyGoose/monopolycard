@@ -1,0 +1,135 @@
+[
+  { "id": "p_brown_1", "type": "property", "colors": ["brown"], "set_size": 2, "name": "Нагатинская ул.", "bank_value": 1, "filename": "/public/cards/property_brown_1.png", "rent_values": [1, 2] },
+  { "id": "p_brown_2", "type": "property", "colors": ["brown"], "set_size": 2, "name": "Житная ул.", "bank_value": 1, "filename": "/public/cards/property_brown_2.png", "rent_values": [1, 2] },
+
+  { "id": "p_lightblue_1", "type": "property", "colors": ["lightblue"], "set_size": 3, "name": "Ул. Огарева", "bank_value": 1, "filename": "/public/cards/property_lightblue_1.png", "rent_values": [1, 2, 3] },
+  { "id": "p_lightblue_2", "type": "property", "colors": ["lightblue"], "set_size": 3, "name": "Первая Парковая ул.", "bank_value": 1, "filename": "/public/cards/property_lightblue_2.png", "rent_values": [1, 2, 3] },
+  { "id": "p_lightblue_3", "type": "property", "colors": ["lightblue"], "set_size": 3, "name": "Варшавское шоссе", "bank_value": 1, "filename": "/public/cards/property_lightblue_3.png", "rent_values": [1, 2, 3] },
+
+  { "id": "p_pink_1", "type": "property", "colors": ["pink"], "set_size": 3, "name": "Ростовская наб.", "bank_value": 2, "filename": "/public/cards/property_pink_1.png", "rent_values": [1, 2, 4] },
+  { "id": "p_pink_2", "type": "property", "colors": ["pink"], "set_size": 3, "name": "Ул. Сретенка", "bank_value": 2, "filename": "/public/cards/property_pink_2.png", "rent_values": [1, 2, 4] },
+  { "id": "p_pink_3", "type": "property", "colors": ["pink"], "set_size": 3, "name": "Ул. Полянка", "bank_value": 2, "filename": "/public/cards/property_pink_3.png", "rent_values": [1, 2, 4] },
+
+  { "id": "p_orange_1", "type": "property", "colors": ["orange"], "set_size": 3, "name": "Рублевское шоссе", "bank_value": 2, "filename": "/public/cards/property_orange_1.png", "rent_values": [1, 3, 5] },
+  { "id": "p_orange_2", "type": "property", "colors": ["orange"], "set_size": 3, "name": "Ул. Вавилова", "bank_value": 2, "filename": "/public/cards/property_orange_2.png", "rent_values": [1, 3, 5] },
+  { "id": "p_orange_3", "type": "property", "colors": ["orange"], "set_size": 3, "name": "Рязанский проспект", "bank_value": 2, "filename": "/public/cards/property_orange_3.png", "rent_values": [1, 3, 5] },
+
+  { "id": "p_red_1", "type": "property", "colors": ["red"], "set_size": 3, "name": "Площадь Маяковского", "bank_value": 3, "filename": "/public/cards/property_red_1.png", "rent_values": [2, 3, 6] },
+  { "id": "p_red_2", "type": "property", "colors": ["red"], "set_size": 3, "name": "Пушкинская ул.", "bank_value": 3, "filename": "/public/cards/property_red_2.png", "rent_values": [2, 3, 6] },
+  { "id": "p_red_3", "type": "property", "colors": ["red"], "set_size": 3, "name": "Ул. Тверская", "bank_value": 3, "filename": "/public/cards/property_red_3.png", "rent_values": [2, 3, 6] },
+
+  { "id": "p_yellow_1", "type": "property", "colors": ["yellow"], "set_size": 3, "name": "Смоленская площадь", "bank_value": 3, "filename": "/public/cards/property_yellow_1.png", "rent_values": [2, 4, 6] },
+  { "id": "p_yellow_2", "type": "property", "colors": ["yellow"], "set_size": 3, "name": "Ул. Грузинский вал", "bank_value": 3, "filename": "/public/cards/property_yellow_2.png", "rent_values": [2, 4, 6] },
+  { "id": "p_yellow_3", "type": "property", "colors": ["yellow"], "set_size": 3, "name": "Ул. Чайковского", "bank_value": 3, "filename": "/public/cards/property_yellow_3.png", "rent_values": [2, 4, 6] },
+
+  { "id": "p_green_1", "type": "property", "colors": ["green"], "set_size": 3, "name": "Кутузовский проспект", "bank_value": 4, "filename": "/public/cards/property_green_1.png", "rent_values": [2, 4, 7] },
+  { "id": "p_green_2", "type": "property", "colors": ["green"], "set_size": 3, "name": "Гоголевский бульвар", "bank_value": 4, "filename": "/public/cards/property_green_2.png", "rent_values": [2, 4, 7] },
+  { "id": "p_green_3", "type": "property", "colors": ["green"], "set_size": 3, "name": "Ул. Щусева", "bank_value": 4, "filename": "/public/cards/property_green_3.png", "rent_values": [2, 4, 7] },
+
+  { "id": "p_darkblue_1", "type": "property", "colors": ["darkblue"], "set_size": 2, "name": "Ул. Арбат", "bank_value": 4, "filename": "/public/cards/property_darkblue_1.png", "rent_values": [3, 8] },
+  { "id": "p_darkblue_2", "type": "property", "colors": ["darkblue"], "set_size": 2, "name": "Малая Бронная", "bank_value": 4, "filename": "/public/cards/property_darkblue_2.png", "rent_values": [3, 8] },
+
+  { "id": "p_railroad_1", "type": "property", "colors": ["railroad"], "set_size": 4, "name": "Рижская железная дорога", "bank_value": 2, "filename": "/public/cards/property_railroad_1.png", "rent_values": [1, 2, 3, 4] },
+  { "id": "p_railroad_2", "type": "property", "colors": ["railroad"], "set_size": 4, "name": "Ленинградская железная дорога", "bank_value": 2, "filename": "/public/cards/property_railroad_2.png", "rent_values": [1, 2, 3, 4] },
+  { "id": "p_railroad_3", "type": "property", "colors": ["railroad"], "set_size": 4, "name": "Казанская железная дорога", "bank_value": 2, "filename": "/public/cards/property_railroad_3.png", "rent_values": [1, 2, 3, 4] },
+  { "id": "p_railroad_4", "type": "property", "colors": ["railroad"], "set_size": 4, "name": "Курская железная дорога", "bank_value": 2, "filename": "/public/cards/property_railroad_4.png", "rent_values": [1, 2, 3, 4] },
+
+  { "id": "p_utilities_1", "type": "property", "colors": ["utility"], "set_size": 2, "name": "Водопровод", "bank_value": 2, "filename": "/public/cards/property_utility_1.png", "rent_values": [1, 2] },
+  { "id": "p_utilities_2", "type": "property", "colors": ["utility"], "set_size": 2, "name": "Электростанция", "bank_value": 2, "filename": "/public/cards/property_utility_2.png", "rent_values": [1, 2] },
+
+  { "id": "pw_brown_lightblue", "type": "property_wild", "colors": ["brown", "lightblue"], "set_size": null, "name": "Коричневый / Голубой", "bank_value": 1, "filename": "/public/cards/propertywild_brown_lightblue.png" },
+  { "id": "pw_pink_orange_1", "type": "property_wild", "colors": ["pink", "orange"], "set_size": null, "name": "Розовый / Оранжевый", "bank_value": 2, "filename": "/public/cards/propertywild_pink_orange_1.png" },
+  { "id": "pw_pink_orange_2", "type": "property_wild", "colors": ["pink", "orange"], "set_size": null, "name": "Розовый / Оранжевый", "bank_value": 2, "filename": "/public/cards/propertywild_pink_orange_2.png" },
+  { "id": "pw_red_yellow_1", "type": "property_wild", "colors": ["red", "yellow"], "set_size": null, "name": "Красный / Желтый", "bank_value": 3, "filename": "/public/cards/propertywild_red_yellow_1.png" },
+  { "id": "pw_red_yellow_2", "type": "property_wild", "colors": ["red", "yellow"], "set_size": null, "name": "Красный / Желтый", "bank_value": 3, "filename": "/public/cards/propertywild_red_yellow_2.png" },
+  { "id": "pw_green_darkblue", "type": "property_wild", "colors": ["green", "darkblue"], "set_size": null, "name": "Зеленый / Темно-синий", "bank_value": 4, "filename": "/public/cards/propertywild_green_darkblue.png" },
+  { "id": "pw_railroad_utility", "type": "property_wild", "colors": ["railroad", "utility"], "set_size": null, "name": "Станция / Предприятие", "bank_value": 2, "filename": "/public/cards/propertywild_railroad_utility.png" },
+  { "id": "pw_lightblue_railroad", "type": "property_wild", "colors": ["lightblue", "railroad"], "set_size": null, "name": "Голубой / Станция", "bank_value": 4, "filename": "/public/cards/propertywild_lightblue_railroad.png" },
+  { "id": "pw_green_railroad", "type": "property_wild", "colors": ["green", "railroad"], "set_size": null, "name": "Зеленый / Станция", "bank_value": 4, "filename": "/public/cards/propertywild_green_railroad.png" },
+  { "id": "pw_any_1", "type": "property_wild", "colors": ["any"], "set_size": null, "name": "Универсальная (Любая)", "bank_value": 0, "filename": "/public/cards/propertywild_any_1.png" },
+  { "id": "pw_any_2", "type": "property_wild", "colors": ["any"], "set_size": null, "name": "Универсальная (Любая)", "bank_value": 0, "filename": "/public/cards/propertywild_any_2.png" },
+
+  { "id": "rent_brown_lightblue_1", "type": "rent", "colors": ["brown", "lightblue"], "bank_value": 1, "filename": "/public/cards/rent_brown_lightblue_1.png" },
+  { "id": "rent_brown_lightblue_2", "type": "rent", "colors": ["brown", "lightblue"], "bank_value": 1, "filename": "/public/cards/rent_brown_lightblue_2.png" },
+  { "id": "rent_pink_orange_1", "type": "rent", "colors": ["pink", "orange"], "bank_value": 1, "filename": "/public/cards/rent_pink_orange_1.png" },
+  { "id": "rent_pink_orange_2", "type": "rent", "colors": ["pink", "orange"], "bank_value": 1, "filename": "/public/cards/rent_pink_orange_2.png" },
+  { "id": "rent_red_yellow_1", "type": "rent", "colors": ["red", "yellow"], "bank_value": 1, "filename": "/public/cards/rent_red_yellow_1.png" },
+  { "id": "rent_red_yellow_2", "type": "rent", "colors": ["red", "yellow"], "bank_value": 1, "filename": "/public/cards/rent_red_yellow_2.png" },
+  { "id": "rent_green_darkblue_1", "type": "rent", "colors": ["green", "darkblue"], "bank_value": 1, "filename": "/public/cards/rent_green_darkblue_1.png" },
+  { "id": "rent_green_darkblue_2", "type": "rent", "colors": ["green", "darkblue"], "bank_value": 1, "filename": "/public/cards/rent_green_darkblue_2.png" },
+  { "id": "rent_railroad_utility_1", "type": "rent", "colors": ["railroad", "utility"], "bank_value": 1, "filename": "/public/cards/rent_railroad_utility_1.png" },
+  { "id": "rent_railroad_utility_2", "type": "rent", "colors": ["railroad", "utility"], "bank_value": 1, "filename": "/public/cards/rent_railroad_utility_2.png" },
+  { "id": "rent_any_1", "type": "rent", "colors": ["any"], "bank_value": 3, "filename": "/public/cards/rent_any_1.png" },
+  { "id": "rent_any_2", "type": "rent", "colors": ["any"], "bank_value": 3, "filename": "/public/cards/rent_any_2.png" },
+  { "id": "rent_any_3", "type": "rent", "colors": ["any"], "bank_value": 3, "filename": "/public/cards/rent_any_3.png" },
+
+  { "id": "a_sly_deal_1", "type": "action", "action_type": "sly_deal", "name": "Хитрая сделка", "bank_value": 3, "filename": "/public/cards/action_sly_deal_1.png", "description": "Укради один объект собственности у другого игрока (не из полного комплекта)." },
+  { "id": "a_sly_deal_2", "type": "action", "action_type": "sly_deal", "name": "Хитрая сделка", "bank_value": 3, "filename": "/public/cards/action_sly_deal_2.png", "description": "Укради один объект собственности у другого игрока (не из полного комплекта)." },
+  { "id": "a_sly_deal_3", "type": "action", "action_type": "sly_deal", "name": "Хитрая сделка", "bank_value": 3, "filename": "/public/cards/action_sly_deal_3.png", "description": "Укради один объект собственности у другого игрока (не из полного комплекта)." },
+
+  { "id": "a_forced_deal_1", "type": "action", "action_type": "forced_deal", "name": "Вынужденная сделка", "bank_value": 3, "filename": "/public/cards/action_forced_deal_1.png", "description": "Поменяй свой объект собственности на объект другого игрока." },
+  { "id": "a_forced_deal_2", "type": "action", "action_type": "forced_deal", "name": "Вынужденная сделка", "bank_value": 3, "filename": "/public/cards/action_forced_deal_2.png", "description": "Поменяй свой объект собственности на объект другого игрока." },
+  { "id": "a_forced_deal_3", "type": "action", "action_type": "forced_deal", "name": "Вынужденная сделка", "bank_value": 3, "filename": "/public/cards/action_forced_deal_3.png", "description": "Поменяй свой объект собственности на объект другого игрока." },
+
+  { "id": "a_pass_go_1", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_1.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_2", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_2.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_3", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_3.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_4", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_4.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_5", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_5.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_6", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_6.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_7", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_7.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_8", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_8.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_9", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_9.png", "description": "Возьми 2 карты из колоды." },
+  { "id": "a_pass_go_10", "type": "action", "action_type": "pass_go", "name": "Пройди клетку Вперед", "bank_value": 1, "filename": "/public/cards/action_pass_go_10.png", "description": "Возьми 2 карты из колоды." },
+
+  { "id": "a_debt_collector_1", "type": "action", "action_type": "debt_collector", "name": "Сборщик долгов", "bank_value": 3, "filename": "/public/cards/action_debt_collector_1.png", "description": "Заставь любого игрока заплатить тебе 5М." },
+  { "id": "a_debt_collector_2", "type": "action", "action_type": "debt_collector", "name": "Сборщик долгов", "bank_value": 3, "filename": "/public/cards/action_debt_collector_2.png", "description": "Заставь любого игрока заплатить тебе 5М." },
+  { "id": "a_debt_collector_3", "type": "action", "action_type": "debt_collector", "name": "Сборщик долгов", "bank_value": 3, "filename": "/public/cards/action_debt_collector_3.png", "description": "Заставь любого игрока заплатить тебе 5М." },
+
+  { "id": "a_birthday_1", "type": "action", "action_type": "birthday", "name": "День Рождения", "bank_value": 2, "filename": "/public/cards/action_birthday_1.png", "description": "Все игроки должны подарить тебе по 2М." },
+  { "id": "a_birthday_2", "type": "action", "action_type": "birthday", "name": "День Рождения", "bank_value": 2, "filename": "/public/cards/action_birthday_2.png", "description": "Все игроки должны подарить тебе по 2М." },
+  { "id": "a_birthday_3", "type": "action", "action_type": "birthday", "name": "День Рождения", "bank_value": 2, "filename": "/public/cards/action_birthday_3.png", "description": "Все игроки должны подарить тебе по 2М." },
+
+  { "id": "a_just_say_no_1", "type": "action", "action_type": "just_say_no", "name": "Просто скажи НЕТ", "bank_value": 4, "filename": "/public/cards/action_just_say_no_1.png", "description": "Отмени действие карты, направленное против тебя." },
+  { "id": "a_just_say_no_2", "type": "action", "action_type": "just_say_no", "name": "Просто скажи НЕТ", "bank_value": 4, "filename": "/public/cards/action_just_say_no_2.png", "description": "Отмени действие карты, направленное против тебя." },
+  { "id": "a_just_say_no_3", "type": "action", "action_type": "just_say_no", "name": "Просто скажи НЕТ", "bank_value": 4, "filename": "/public/cards/action_just_say_no_3.png", "description": "Отмени действие карты, направленное против тебя." },
+
+  { "id": "a_deal_breaker_1", "type": "action", "action_type": "deal_breaker", "name": "Аферист", "bank_value": 5, "filename": "/public/cards/action_deal_breaker_1.png", "description": "Укради у любого игрока полный комплект собственности." },
+  { "id": "a_deal_breaker_2", "type": "action", "action_type": "deal_breaker", "name": "Аферист", "bank_value": 5, "filename": "/public/cards/action_deal_breaker_2.png", "description": "Укради у любого игрока полный комплект собственности." },
+
+  { "id": "a_double_the_rent_1", "type": "action", "action_type": "double_the_rent", "name": "Двойная рента", "bank_value": 1, "filename": "/public/cards/action_double_the_rent_1.png", "description": "Удвой сумму ренты. Играется вместе с картой Ренты." },
+  { "id": "a_double_the_rent_2", "type": "action", "action_type": "double_the_rent", "name": "Двойная рента", "bank_value": 1, "filename": "/public/cards/action_double_the_rent_2.png", "description": "Удвой сумму ренты. Играется вместе с картой Ренты." },
+
+  { "id": "a_house_1", "type": "action", "action_type": "house", "name": "Дом", "bank_value": 3, "filename": "/public/cards/action_house_1.png", "description": "Добавляет 3М к стоимости ренты полного комплекта." },
+  { "id": "a_house_2", "type": "action", "action_type": "house", "name": "Дом", "bank_value": 3, "filename": "/public/cards/action_house_2.png", "description": "Добавляет 3М к стоимости ренты полного комплекта." },
+  { "id": "a_house_3", "type": "action", "action_type": "house", "name": "Дом", "bank_value": 3, "filename": "/public/cards/action_house_3.png", "description": "Добавляет 3М к стоимости ренты полного комплекта." },
+
+  { "id": "a_hotel_1", "type": "action", "action_type": "hotel", "name": "Отель", "bank_value": 4, "filename": "/public/cards/action_hotel_1.png", "description": "Добавляет 4М к стоимости ренты комплекта с Домом." },
+  { "id": "a_hotel_2", "type": "action", "action_type": "hotel", "name": "Отель", "bank_value": 4, "filename": "/public/cards/action_hotel_2.png", "description": "Добавляет 4М к стоимости ренты комплекта с Домом." },
+
+  { "id": "m_1_1", "type": "money", "value": 1, "filename": "/public/cards/money_1m_1.png" },
+  { "id": "m_1_2", "type": "money", "value": 1, "filename": "/public/cards/money_1m_2.png" },
+  { "id": "m_1_3", "type": "money", "value": 1, "filename": "/public/cards/money_1m_3.png" },
+  { "id": "m_1_4", "type": "money", "value": 1, "filename": "/public/cards/money_1m_4.png" },
+  { "id": "m_1_5", "type": "money", "value": 1, "filename": "/public/cards/money_1m_5.png" },
+  { "id": "m_1_6", "type": "money", "value": 1, "filename": "/public/cards/money_1m_6.png" },
+
+  { "id": "m_2_1", "type": "money", "value": 2, "filename": "/public/cards/money_2m_1.png" },
+  { "id": "m_2_2", "type": "money", "value": 2, "filename": "/public/cards/money_2m_2.png" },
+  { "id": "m_2_3", "type": "money", "value": 2, "filename": "/public/cards/money_2m_3.png" },
+  { "id": "m_2_4", "type": "money", "value": 2, "filename": "/public/cards/money_2m_4.png" },
+  { "id": "m_2_5", "type": "money", "value": 2, "filename": "/public/cards/money_2m_5.png" },
+
+  { "id": "m_3_1", "type": "money", "value": 3, "filename": "/public/cards/money_3m_1.png" },
+  { "id": "m_3_2", "type": "money", "value": 3, "filename": "/public/cards/money_3m_2.png" },
+  { "id": "m_3_3", "type": "money", "value": 3, "filename": "/public/cards/money_3m_3.png" },
+
+  { "id": "m_4_1", "type": "money", "value": 4, "filename": "/public/cards/money_4m_1.png" },
+  { "id": "m_4_2", "type": "money", "value": 4, "filename": "/public/cards/money_4m_2.png" },
+  { "id": "m_4_3", "type": "money", "value": 4, "filename": "/public/cards/money_4m_3.png" },
+
+  { "id": "m_5_1", "type": "money", "value": 5, "filename": "/public/cards/money_5m_1.png" },
+  { "id": "m_5_2", "type": "money", "value": 5, "filename": "/public/cards/money_5m_2.png" },
+
+  { "id": "m_10_1", "type": "money", "value": 10, "filename": "/public/cards/money_10m_1.png" }
+]
