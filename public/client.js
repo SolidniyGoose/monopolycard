@@ -39,6 +39,7 @@ const colorNames = {
     'utility': 'Предприятия', 'any': 'Разноцветный'
 };
 
+// Базовые цвета для игры
 const bgColors = {
     'brown': '#8B4513', 'lightblue': '#87CEEB', 'pink': '#FF69B4',
     'orange': '#FF8C00', 'red': '#FF0000', 'yellow': '#FFD700',
@@ -47,17 +48,54 @@ const bgColors = {
 
 fetch('/cards_data.json').then(res => res.json()).then(data => { allCardsData = data; });
 
-socket.on('connect', () => { statusEl.textContent = '🟢 Ждем входа...'; });
+socket.on('connect', () => { 
+    statusEl.textContent = '🟢 Подключено. Ждем входа...'; 
+    
+    const savedPlayerId = localStorage.getItem('monopoly_playerId');
+    const savedPlayerName = localStorage.getItem('monopoly_playerName');
+    
+    if (savedPlayerId && savedPlayerName) {
+        socket.emit('join_room', { room: 'test_room', name: savedPlayerName, playerId: savedPlayerId }, (res) => {
+            if (res && res.error === 'session_not_found') {
+                localStorage.removeItem('monopoly_playerId');
+                statusEl.textContent = '🟢 Сервер перезапущен. Нажмите "Войти".';
+            } else if (res && res.ok) {
+                myPlayerId = res.playerId;
+                localStorage.setItem('monopoly_playerId', myPlayerId);
+                
+                statusEl.textContent = `🟢 ${savedPlayerName}`;
+                btnJoin.disabled = true;
+                btnStart.disabled = false;
+                
+                if (currentGameState) renderGame();
+            }
+        });
+    }
+});
 
 btnJoin.addEventListener('click', () => {
-    const playerName = prompt("Введите ваше имя:", "Игрок " + Math.floor(Math.random() * 100));
+    const savedPlayerName = localStorage.getItem('monopoly_playerName') || "Игрок " + Math.floor(Math.random() * 100);
+    const playerName = prompt("Введите ваше имя:", savedPlayerName);
     if(!playerName) return;
-    socket.emit('join_room', { room: 'test_room', name: playerName }, (res) => {
-        if (res.ok) {
+    
+    const savedPlayerId = localStorage.getItem('monopoly_playerId');
+
+    socket.emit('join_room', { room: 'test_room', name: playerName, playerId: savedPlayerId }, (res) => {
+        if (res && res.error === 'session_not_found') {
+            localStorage.removeItem('monopoly_playerId');
+            alert('Сессия устарела (сервер был перезапущен). Нажмите "Войти" еще раз!');
+            return;
+        }
+        if (res && res.ok) {
             myPlayerId = res.playerId;
+            localStorage.setItem('monopoly_playerId', myPlayerId);
+            localStorage.setItem('monopoly_playerName', playerName);
+            
             statusEl.textContent = `🟢 ${playerName}`;
             btnJoin.disabled = true;
             btnStart.disabled = false;
+            
+            if (currentGameState) renderGame();
         }
     });
 });
@@ -183,7 +221,6 @@ document.addEventListener('pointerup', (e) => {
                 }
                 socket.emit('intent_move_to_bank', { room: 'test_room', playerId: myPlayerId, cardId: cardId }, callback);
             } else if (zone.id === 'player-properties') {
-                // ИСПРАВЛЕНИЕ: Жестко блокируем все, кроме недвижимости!
                 if (cardData.type !== 'property' && cardData.type !== 'property_wild') {
                     alert('В зону недвижимости можно класть только карточки недвижимости!');
                     return returnCardToHand();
@@ -199,7 +236,6 @@ document.addEventListener('pointerup', (e) => {
                     } else openWildColorModal(cardId, cardData, returnCardToHand, false);
                 } else socket.emit('play_property', { room: 'test_room', playerId: myPlayerId, cardId: cardId }, callback);
             } else if (zone.id === 'action-zone') {
-                // ИСПРАВЛЕНИЕ: Получаем type с учетом того, что это может быть и rent
                 const type = cardData?.action_type || cardData?.type;
                 if (['debt_collector', 'sly_deal', 'forced_deal', 'deal_breaker', 'rent', 'double_the_rent', 'house', 'hotel', 'birthday'].includes(type)) {
                     openTargetModal(cardId, cardData, type, returnCardToHand);
@@ -411,11 +447,9 @@ function openTargetModal(actionCardId, cardData, actionType, cancelCallback) {
 
     const myProps = currentGameState.players[myPlayerId].properties;
 
-    // ИСПРАВЛЕНИЕ: Интегрируем Двойную ренту
     if (actionType === 'rent' || actionType === 'double_the_rent') {
         modalTitle.textContent = actionType === 'double_the_rent' ? 'УДВОЕННАЯ РЕНТА: За какой цвет берем?' : 'За какой цвет возьмем ренту?';
         
-        // Для Двойной ренты по умолчанию доступны ВСЕ цвета (по аналогии с картой Any)
         let availableColors = (cardData.colors && cardData.colors.includes('any')) || actionType === 'double_the_rent' ? Object.keys(bgColors) : (cardData.colors || Object.keys(bgColors));
         let validColors = availableColors.filter(c => myProps[c] && myProps[c].filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length > 0);
 
@@ -657,17 +691,44 @@ function createCardElement(cardId, assignedColor = null) {
     }
 
     let colorsText = cardData.colors ? cardData.colors.map(c => colorNames[c] || c).join('/') : '';
+    let multiColorStripe = ''; // Переменная для цветной полоски
+
+    // --- МАГИЯ ЦВЕТНЫХ ПОЛОСОК ---
     if (assignedColor && assignedColor !== 'unassigned') {
         colorsText = `<b style="color: #2c3e50;">(Как: ${colorNames[assignedColor] || assignedColor})</b>`;
         if (bgColors[assignedColor]) {
             cardEl.style.borderTopColor = bgColors[assignedColor];
             cardEl.style.borderTopWidth = '8px'; 
         }
+    } else if (cardData.colors && cardData.colors.length > 0) {
+        if (cardData.colors.length === 1 && cardData.colors[0] !== 'any') {
+            // Одноцветная недвижимость
+            if (bgColors[cardData.colors[0]]) {
+                cardEl.style.borderTopColor = bgColors[cardData.colors[0]];
+            }
+        } else {
+            // Двухцветная недвижимость или Универсальная Джокер-карта
+            let gradient = '';
+            if (cardData.colors[0] === 'any') {
+                gradient = 'linear-gradient(to right, #e74c3c, #e67e22, #f1c40f, #2ecc71, #3498db, #8e44ad)';
+            } else if (cardData.colors.length === 2) {
+                const c1 = bgColors[cardData.colors[0]] || '#000';
+                const c2 = bgColors[cardData.colors[1]] || '#000';
+                gradient = `linear-gradient(to right, ${c1} 50%, ${c2} 50%)`;
+            }
+            
+            if (gradient) {
+                // Создаем градиентную полоску, которая идеально закроет базовый бордер
+                multiColorStripe = `<span style="display: block; position: absolute; top: -5px; left: -2px; right: -2px; height: 5px; background: ${gradient}; border-top-left-radius: 6px; border-top-right-radius: 6px; z-index: 1;"></span>`;
+                cardEl.style.borderTopColor = 'transparent'; // Прячем базовую однотонную полоску CSS
+            }
+        }
     }
 
     let valText = cardData.bank_value !== undefined ? cardData.bank_value : (cardData.value || 0);
-    let descText = cardData.description ? `<div style="font-size: 8px; color: #555; text-align: center; margin-top: 5px;">${cardData.description}</div>` : '';
+    let descText = cardData.description ? `<div style="font-size: 8px; color: #555; text-align: center; margin-top: 5px; position: relative; z-index: 2;">${cardData.description}</div>` : '';
 
+    // Если есть картинка, она накладывается фоном
     if (cardData.filename) {
         const imageUrl = cardData.filename.replace('/public', '');
         cardEl.style.backgroundImage = `url('${imageUrl}')`;
@@ -681,10 +742,11 @@ function createCardElement(cardId, assignedColor = null) {
     cardEl.title = (cardData.name || cardData.action_type || 'Карта') + descTextHover;
 
     cardEl.innerHTML = `
-        <div class="card-title">${displayName}</div>
-        <div class="card-colors">${colorsText}</div>
+        ${multiColorStripe}
+        <div class="card-title" style="position: relative; z-index: 2;">${displayName}</div>
+        <div class="card-colors" style="position: relative; z-index: 2;">${colorsText}</div>
         ${descText}
-        <div class="card-val">${valText}</div>
+        <div class="card-val" style="position: relative; z-index: 2;">${valText}</div>
     `;
     return cardEl;
 }

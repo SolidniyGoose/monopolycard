@@ -123,11 +123,38 @@ function removePropertyFromOwner(game, ownerId, cardId){
 }
 
 io.on('connection', socket=>{
-  socket.on('join_room', ({ room='default', name='Player' }, cb)=>{
+  socket.on('join_room', ({ room='default', name='Player', playerId }, cb)=>{
     const game = getOrCreateGame(room);
-    const pid = socket.id;
-    game.players[pid] = game.players[pid] || { id: pid, name: name || 'Player', socketId: socket.id, hand: [], bank: [], properties: {}, flags: { doubleNextRent: false }, connected: true };
-    if(!game.turnOrder.includes(pid)) game.turnOrder.push(pid);
+    
+    // ИСПРАВЛЕНИЕ: Проверка валидности сессии
+    if (playerId) {
+      if (game.players[playerId]) {
+        // Успешное переподключение
+        game.players[playerId].socketId = socket.id; 
+        game.players[playerId].connected = true;     
+        game.players[playerId].name = name || game.players[playerId].name;
+        console.log(`[io] ${name} RECONNECTED to ${room} as ${playerId}`);
+        socket.join(room);
+        sendGameState(room);
+        return cb && cb({ ok: true, playerId: playerId });
+      } else {
+        // Сервер перезапустился, ID устарел! Сообщаем клиенту.
+        console.log(`[io] Rejected old session ${playerId} for ${name}`);
+        return cb && cb({ error: 'session_not_found' });
+      }
+    }
+
+    // Новый игрок
+    const pid = generateId('p');
+    game.players[pid] = { 
+      id: pid, 
+      name: name || 'Player', 
+      socketId: socket.id, 
+      hand: [], bank: [], properties: {}, flags: { doubleNextRent: false }, connected: true 
+    };
+    game.turnOrder.push(pid);
+    console.log(`[io] ${name} JOINED ${room} as ${pid}`);
+    
     socket.join(room);
     sendGameState(room);
     if(cb) cb({ ok: true, playerId: pid });
@@ -197,7 +224,6 @@ io.on('connection', socket=>{
     if(game.playsThisTurn >= 3) return cb && cb({ error: 'max_plays' });
 
     const meta = cardById(cardId);
-    // ИСПРАВЛЕНИЕ: Разрешаем и действия (action), и карты ренты (rent)
     if(!meta || (meta.type !== 'action' && meta.type !== 'rent')) return cb && cb({ error: 'not_action_card' });
 
     const ok = removeFromHand(game, playerId, cardId);
@@ -225,13 +251,11 @@ io.on('connection', socket=>{
       return cb && cb({ ok:true, pending: pa.id });
     }
 
-    // ИСПРАВЛЕНИЕ: Обычная рента и Двойная рента теперь обрабатываются одним мощным блоком
     if(t === 'rent' || t === 'double_the_rent'){
       const color = opts && opts.color;
       const targets = opts && opts.targets ? opts.targets : Object.keys(game.players).filter(id=>id!==playerId);
       const actor = game.players[playerId];
       
-      // Если это универсальная (any) рента ИЛИ Двойная рента, берем цвет из opts, иначе берем из самой карты
       const chosenColors = (meta.colors && meta.colors.includes('any')) || t === 'double_the_rent' ? [color] : (meta.colors || []);
       
       let baseAmount = 0;
@@ -250,8 +274,6 @@ io.on('connection', socket=>{
           }
       }
       if (baseAmount === 0 && meta.bank_value) baseAmount = 1;
-      
-      // Магия Двойной Ренты:
       if (t === 'double_the_rent') baseAmount *= 2;
 
       const pa = { id: generateId('pa'), type: 'rent', actor: playerId, targets, payload: { cardId, colors: chosenColors, amount: baseAmount }, responses: {}, resolved:false };
@@ -384,10 +406,17 @@ io.on('connection', socket=>{
   });
   
   socket.on('disconnect', ()=>{
+    console.log('[io] disconnect', socket.id);
     for(const [room, game] of games.entries()){
-      if(game.players[socket.id]){ game.players[socket.id].connected = false; sendGameState(room); }
+      for(const pid of Object.keys(game.players)){
+        if(game.players[pid].socketId === socket.id){
+          game.players[pid].connected = false;
+          sendGameState(room);
+        }
+      }
     }
   });
+
 });
 
 function attemptResolvePendingAction(game, room){
@@ -474,4 +503,4 @@ function attemptResolvePendingAction(game, room){
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', ()=>{
   console.log(`[server] listening on 0.0.0.0:${PORT}`);
-}); 
+});
