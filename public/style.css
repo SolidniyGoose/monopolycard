@@ -390,3 +390,11 @@ body {
 .card.has-image div {
     display: none !important;
 }
+
+#discard-pile.drag-over {
+    background: rgba(231, 76, 60, 0.3);
+    border-color: #e74c3c;
+    box-shadow: 0 0 20px rgba(231, 76, 60, 0.6);
+    transform: scale(1.05);
+    transition: all 0.2s ease;
+}

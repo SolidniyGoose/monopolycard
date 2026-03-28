@@ -14,11 +14,15 @@ const CARDS_JSON_PATH = path.join(__dirnameServer, 'cards_data.json');
 let cardsData = [];
 try {
   cardsData = JSON.parse(fs.readFileSync(CARDS_JSON_PATH, 'utf8'));
-  console.log('[server] loaded cards_data.json', cardsData.length, 'cards');
+  console.log('[server] Загружена колода:', cardsData.length, 'карт');
 } catch (e) {
-  console.warn('[server] cards_data.json not found at', CARDS_JSON_PATH);
+  console.warn('[server] Файл cards_data.json не найден!', CARDS_JSON_PATH);
   cardsData = [];
 }
+
+app.get('/cards_data.json', (req, res) => {
+  res.json(cardsData);
+});
 
 app.use(express.static(path.join(__dirnameServer, 'public')));
 
@@ -27,7 +31,6 @@ const games = new Map();
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
 function generateId(prefix='id'){ return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,6); }
 function cardById(id){ return cardsData.find(c=>c.id === id); }
-function cardValue(cardId){ const c = cardById(cardId); if(!c) return 0; if(c.type === 'money') return c.value || 0; return c.bank_value || 0; }
 
 function getOrCreateGame(room){
   if(!games.has(room)){
@@ -66,6 +69,9 @@ function drawToPlayer(game, playerId, count){
     const c = game.deck.shift();
     game.players[playerId].hand.push(c);
     drawn.push(c);
+  }
+  if (drawn.length > 0) {
+      console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' взял из колоды: [ ${drawn.join(', ')} ]. На руках: ${game.players[playerId].hand.length} шт.`);
   }
   return drawn;
 }
@@ -125,35 +131,24 @@ function removePropertyFromOwner(game, ownerId, cardId){
 io.on('connection', socket=>{
   socket.on('join_room', ({ room='default', name='Player', playerId }, cb)=>{
     const game = getOrCreateGame(room);
-    
-    // ИСПРАВЛЕНИЕ: Проверка валидности сессии
-    if (playerId) {
-      if (game.players[playerId]) {
-        // Успешное переподключение
-        game.players[playerId].socketId = socket.id; 
-        game.players[playerId].connected = true;     
-        game.players[playerId].name = name || game.players[playerId].name;
-        console.log(`[io] ${name} RECONNECTED to ${room} as ${playerId}`);
-        socket.join(room);
-        sendGameState(room);
-        return cb && cb({ ok: true, playerId: playerId });
-      } else {
-        // Сервер перезапустился, ID устарел! Сообщаем клиенту.
-        console.log(`[io] Rejected old session ${playerId} for ${name}`);
-        return cb && cb({ error: 'session_not_found' });
-      }
+    let pid = playerId;
+
+    if (pid && game.players[pid]) {
+      game.players[pid].socketId = socket.id; 
+      game.players[pid].connected = true;     
+      game.players[pid].name = name || game.players[pid].name;
+      console.log(`[io] ${name} ПЕРЕПОДКЛЮЧИЛСЯ к комнате ${room} (ID: ${pid})`);
+      socket.join(room);
+      sendGameState(room);
+      return cb && cb({ ok: true, playerId: pid });
+    } else if (pid) {
+      return cb && cb({ error: 'session_not_found' });
     }
 
-    // Новый игрок
-    const pid = generateId('p');
-    game.players[pid] = { 
-      id: pid, 
-      name: name || 'Player', 
-      socketId: socket.id, 
-      hand: [], bank: [], properties: {}, flags: { doubleNextRent: false }, connected: true 
-    };
+    pid = generateId('p');
+    game.players[pid] = { id: pid, name: name || 'Player', socketId: socket.id, hand: [], bank: [], properties: {}, flags: { doubleNextRent: false }, connected: true };
     game.turnOrder.push(pid);
-    console.log(`[io] ${name} JOINED ${room} as ${pid}`);
+    console.log(`[io] ${name} ЗАШЕЛ В ИГРУ (Новый ID: ${pid})`);
     
     socket.join(room);
     sendGameState(room);
@@ -163,10 +158,15 @@ io.on('connection', socket=>{
   socket.on('start_game', ({ room }, cb)=>{
     const game = games.get(room);
     if(!game) return cb && cb({ error: 'no_game' });
+    
+    console.log(`\n[МОНИТОРИНГ] ====== ИГРА НАЧАЛАСЬ ======`);
     game.deck = cardsData.map(c=>c.id).slice();
     shuffle(game.deck);
     game.discard = [];
-    for(const pid of game.turnOrder){ game.players[pid].hand = []; drawToPlayer(game, pid, 5); }
+    for(const pid of game.turnOrder){ 
+        game.players[pid].hand = []; 
+        drawToPlayer(game, pid, 5); 
+    }
     game.turnIndex = 0; game.playsThisTurn = 0; game.pendingAction = null;
     sendGameState(room);
     if(cb) cb({ ok: true });
@@ -181,6 +181,21 @@ io.on('connection', socket=>{
     if(cb) cb({ ok:true, drawn });
   });
 
+  socket.on('intent_discard', ({ room, playerId, cardId }, cb)=>{
+    const game = games.get(room);
+    if(!game) return cb && cb({ error: 'no_game' });
+    if(game.turnOrder[game.turnIndex] !== playerId) return cb && cb({ error: 'not_your_turn' });
+
+    const ok = removeFromHand(game, playerId, cardId);
+    if(!ok) return cb && cb({ error: 'card_not_in_hand' });
+    
+    console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' ВЫБРОСИЛ В СБРОС карту: [ ${cardId} ]`);
+    
+    game.discard.push(cardId);
+    sendGameState(room);
+    if(cb) cb({ ok:true });
+  });
+
   socket.on('intent_move_to_bank', ({ room, playerId, cardId }, cb)=>{
     const game = games.get(room);
     if(!game) return cb && cb({ error: 'no_game' });
@@ -189,6 +204,9 @@ io.on('connection', socket=>{
 
     const ok = removeFromHand(game, playerId, cardId);
     if(!ok) return cb && cb({ error: 'card_not_in_hand' });
+    
+    console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' положил в БАНК карту: [ ${cardId} ]`);
+    
     game.players[playerId].bank.push(cardId);
     game.playsThisTurn++;
     sendGameState(room);
@@ -211,6 +229,9 @@ io.on('connection', socket=>{
     } else if(meta && meta.type === 'property'){
       assignColor = meta.colors && meta.colors[0];
     }
+    
+    console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' выложил НЕДВИЖИМОСТЬ: [ ${cardId} ] (Цвет: ${assignColor})`);
+    
     givePropertyTo(game, playerId, cardId, assignColor);
     game.playsThisTurn++;
     sendGameState(room);
@@ -230,6 +251,8 @@ io.on('connection', socket=>{
     if(!ok) return cb && cb({ error: 'card_not_in_hand' });
 
     const t = meta.action_type || meta.type;
+    console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' разыграл ДЕЙСТВИЕ: [ ${cardId} ] (${t})`);
+    
     const finishPlay = () => { game.discard.push(cardId); game.playsThisTurn++; };
 
     if(t === 'pass_go'){
@@ -242,7 +265,7 @@ io.on('connection', socket=>{
       const target = opts && opts.target;
       const targets = target ? [target] : Object.keys(game.players).filter(id=>id !== playerId);
       const pa = { id: generateId('pa'), type: 'debt_collector', actor: playerId, targets, payload: { amount: 5, cardId }, responses: {}, resolved: false };
-      for(const tpid of targets) pa.responses[tpid] = { responded:false, playedNo:false };
+      for(const tpid of targets) pa.responses[tpid] = { state: 'pending_target', paymentCards: [] };
       game.pendingAction = pa;
       for(const tpid of targets){
         io.to(game.players[tpid].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, amount: 5, payload: pa.payload });
@@ -255,7 +278,6 @@ io.on('connection', socket=>{
       const color = opts && opts.color;
       const targets = opts && opts.targets ? opts.targets : Object.keys(game.players).filter(id=>id!==playerId);
       const actor = game.players[playerId];
-      
       const chosenColors = (meta.colors && meta.colors.includes('any')) || t === 'double_the_rent' ? [color] : (meta.colors || []);
       
       let baseAmount = 0;
@@ -277,7 +299,7 @@ io.on('connection', socket=>{
       if (t === 'double_the_rent') baseAmount *= 2;
 
       const pa = { id: generateId('pa'), type: 'rent', actor: playerId, targets, payload: { cardId, colors: chosenColors, amount: baseAmount }, responses: {}, resolved:false };
-      for(const tpid of targets) pa.responses[tpid] = { responded:false, playedNo:false };
+      for(const tpid of targets) pa.responses[tpid] = { state: 'pending_target', paymentCards: [] };
       game.pendingAction = pa;
       for(const tpid of targets){
         io.to(game.players[tpid].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, amount: baseAmount, payload: pa.payload });
@@ -289,7 +311,7 @@ io.on('connection', socket=>{
     if(t === 'sly_deal'){
       const target = opts && opts.target; const targetCardId = opts && opts.targetCardId;
       const pa = { id: generateId('pa'), type: 'sly_deal', actor: playerId, targets: [target], payload: { cardId, targetCardId }, responses: {}, resolved:false };
-      pa.responses[target] = { responded:false, playedNo:false };
+      pa.responses[target] = { state: 'pending_target', paymentCards: [] };
       game.pendingAction = pa;
       io.to(game.players[target].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, payload: pa.payload });
       sendGameState(room);
@@ -299,7 +321,7 @@ io.on('connection', socket=>{
     if(t === 'forced_deal'){
       const target = opts && opts.target; const myCardId = opts && opts.myCardId; const theirCardId = opts && opts.theirCardId;
       const pa = { id: generateId('pa'), type: 'forced_deal', actor: playerId, targets: [target], payload: { cardId, myCardId, theirCardId }, responses: {}, resolved:false };
-      pa.responses[target] = { responded:false, playedNo:false };
+      pa.responses[target] = { state: 'pending_target', paymentCards: [] };
       game.pendingAction = pa;
       io.to(game.players[target].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, payload: pa.payload });
       sendGameState(room);
@@ -309,27 +331,11 @@ io.on('connection', socket=>{
     if(t === 'deal_breaker'){
       const target = opts && opts.target; const color = opts && opts.color; 
       const pa = { id: generateId('pa'), type: 'deal_breaker', actor: playerId, targets: [target], payload: { cardId, color }, responses: {}, resolved:false };
-      pa.responses[target] = { responded:false, playedNo:false };
+      pa.responses[target] = { state: 'pending_target', paymentCards: [] };
       game.pendingAction = pa;
       io.to(game.players[target].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, payload: pa.payload });
       sendGameState(room);
       return cb && cb({ ok:true, pending: pa.id });
-    }
-
-    if(t === 'just_say_no'){
-      const pa = game.pendingAction;
-      let used = false;
-      if(pa && pa.targets.includes(playerId)){
-        pa.responses[playerId] = pa.responses[playerId] || {};
-        pa.responses[playerId].playedNo = true;
-        pa.responses[playerId].responded = true;
-        used = true;
-      }
-      game.discard.push(cardId);
-      game.playsThisTurn++;
-      attemptResolvePendingAction(game, room);
-      sendGameState(room);
-      return cb && cb({ ok:true, usedNo: used });
     }
 
     if(t === 'house' || t === 'hotel'){
@@ -345,7 +351,7 @@ io.on('connection', socket=>{
     if(t === 'birthday'){
       const targets = Object.keys(game.players).filter(id => id !== playerId);
       const pa = { id: generateId('pa'), type: 'birthday', actor: playerId, targets, payload: { amount: 2, cardId }, responses: {}, resolved:false };
-      for(const tpid of targets) pa.responses[tpid] = { responded:false, playedNo:false };
+      for(const tpid of targets) pa.responses[tpid] = { state: 'pending_target', paymentCards: [] };
       game.pendingAction = pa;
       for(const tpid of targets){
         io.to(game.players[tpid].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, amount: 2, payload: pa.payload });
@@ -359,26 +365,53 @@ io.on('connection', socket=>{
     return cb && cb({ ok:true });
   });
 
-  socket.on('respond_action', ({ room, playerId, pendingId, action, playedJustSayNoCardId, paymentCards }, cb)=>{
+  // НОВАЯ ЛОГИКА ДЛЯ БЕСКОНЕЧНЫХ "ПРОСТО СКАЖИ НЕТ"
+  socket.on('respond_action', ({ room, playerId, pendingId, action, playedJustSayNoCardId, paymentCards, targetId }, cb)=>{
     const game = games.get(room);
-    if(!game || !game.pendingAction) return cb && cb({ error:'no_pending' });
+    if(!game || !game.pendingAction || game.pendingAction.id !== pendingId) return cb && cb({ error:'no_pending' });
     const pa = game.pendingAction;
     
-    if(playedJustSayNoCardId){
+    // Кто-то разыграл "НЕТ"
+    if(action === 'decline' && playedJustSayNoCardId){
       const ok = removeFromHand(game, playerId, playedJustSayNoCardId);
       if(!ok) return cb && cb({ error:'no_card_not_in_hand' });
       game.discard.push(playedJustSayNoCardId);
-      pa.responses[playerId].playedNo = true;
-      pa.responses[playerId].responded = true;
-      attemptResolvePendingAction(game, room);
-      return cb && cb({ ok:true, playedNo:true });
+      console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' сыграл ПРОСТО СКАЖИ НЕТ [${playedJustSayNoCardId}]`);
+
+      if (playerId === pa.actor) {
+         // Атакующий отвечает своим "НЕТ" на "НЕТ" жертвы
+         if (!targetId || !pa.responses[targetId]) return cb && cb({error:'invalid_target'});
+         pa.responses[targetId].state = 'pending_target'; // Мяч на стороне жертвы
+         io.to(game.players[targetId].socketId).emit('action_request', {
+             id: pa.id, type: pa.type, from: playerId, amount: pa.payload.amount || 0,
+             payload: pa.payload, counterNo: true // Флаг, что это контр-удар
+         });
+      } else {
+         // Жертва защищается картой "НЕТ"
+         pa.responses[playerId].state = 'pending_actor'; // Мяч на стороне атакующего
+         io.to(game.players[pa.actor].socketId).emit('counter_request', {
+             id: pa.id, type: pa.type, targetId: playerId, fromName: game.players[playerId].name
+         });
+      }
+      sendGameState(room);
+      return cb && cb({ ok:true });
     }
 
-    pa.responses[playerId].responded = true;
-    pa.responses[playerId].accept = (action === 'accept');
-    pa.responses[playerId].paymentCards = paymentCards || [];
-    attemptResolvePendingAction(game, room);
-    return cb && cb({ ok:true });
+    // Кто-то нажал "Смириться"
+    if (action === 'accept') {
+       if (playerId === pa.actor) {
+           // Атакующий смирился с защитой жертвы (отменяем действие)
+           if (!targetId || !pa.responses[targetId]) return cb && cb({error:'invalid_target'});
+           pa.responses[targetId].state = 'cancelled';
+           console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' смирился с отказом от '${game.players[targetId].name}'`);
+       } else {
+           // Жертва смирилась с действием или атакой (исполняем действие)
+           pa.responses[playerId].state = 'accepted';
+           pa.responses[playerId].paymentCards = paymentCards || [];
+       }
+       attemptResolvePendingAction(game, room);
+       return cb && cb({ ok:true });
+    }
   });
 
   socket.on('flip_property', ({ room, playerId, cardId, newColor }, cb)=>{
@@ -406,7 +439,6 @@ io.on('connection', socket=>{
   });
   
   socket.on('disconnect', ()=>{
-    console.log('[io] disconnect', socket.id);
     for(const [room, game] of games.entries()){
       for(const pid of Object.keys(game.players)){
         if(game.players[pid].socketId === socket.id){
@@ -423,79 +455,60 @@ function attemptResolvePendingAction(game, room){
   const pa = game.pendingAction;
   if(!pa) return;
   
-  const anyNo = Object.values(pa.responses).some(r=>r.playedNo);
-  if(anyNo){
-    if(pa.payload && pa.payload.cardId) game.discard.push(pa.payload.cardId);
-    pa.resolved = true;
-    for(const pid of Object.keys(game.players)) io.to(game.players[pid].socketId).emit('action_resolved', { id: pa.id, type: pa.type, result: 'cancelled_by_no' });
-    game.pendingAction = null;
-    sendGameState(room);
-    return;
-  }
+  // Проверяем, все ли жертвы приняли финальное решение (accepted или cancelled)
+  const allResolved = Object.values(pa.responses).every(r => r.state === 'accepted' || r.state === 'cancelled');
+  if(!allResolved) return;
 
-  const allResponded = Object.values(pa.responses).every(r => r.responded === true);
-  if(!allResponded) return;
+  let executed = false; // Было ли действие выполнено хоть на ком-то
 
   if(pa.type === 'debt_collector' || pa.type === 'birthday' || pa.type === 'rent'){
     for(const t of pa.targets){
-      const resp = pa.responses[t];
-      if (resp && resp.paymentCards && resp.paymentCards.length > 0) {
-          processManualPayment(game, t, pa.actor, resp.paymentCards);
+      if (pa.responses[t].state === 'accepted') {
+          executed = true;
+          const resp = pa.responses[t];
+          if (resp && resp.paymentCards && resp.paymentCards.length > 0) {
+              processManualPayment(game, t, pa.actor, resp.paymentCards);
+          }
       }
     }
-    if(pa.payload.cardId) game.discard.push(pa.payload.cardId);
-    pa.resolved = true;
-    for(const pid of Object.keys(game.players)) io.to(game.players[pid].socketId).emit('action_resolved', { id: pa.id, type: pa.type, result: 'collected' });
-    game.pendingAction = null;
-    sendGameState(room);
-    return;
   }
-
-  if(pa.type === 'sly_deal'){
-    const target = pa.targets[0]; const victimCard = pa.payload.targetCardId;
-    const removed = removePropertyFromOwner(game, target, victimCard);
-    if(removed){ const meta = cardById(victimCard); const color = (meta && meta.colors && meta.colors[0]) || 'unassigned'; givePropertyTo(game, pa.actor, victimCard, color); }
-    if(pa.payload.cardId) game.discard.push(pa.payload.cardId);
-    pa.resolved = true;
-    io.to(room).emit('action_resolved', { id: pa.id, type: pa.type, result: removed ? 'stolen' : 'not_found' });
-    game.pendingAction = null;
-    sendGameState(room);
-    return;
-  }
-
-  if(pa.type === 'forced_deal'){
-    const target = pa.targets[0]; const myCard = pa.payload.myCardId; const theirCard = pa.payload.theirCardId;
-    const removedMine = removePropertyFromOwner(game, pa.actor, myCard);
-    const removedTheirs = removePropertyFromOwner(game, target, theirCard);
-    if(removedMine) givePropertyTo(game, target, myCard);
-    if(removedTheirs) givePropertyTo(game, pa.actor, theirCard);
-    if(pa.payload.cardId) game.discard.push(pa.payload.cardId);
-    pa.resolved = true;
-    io.to(room).emit('action_resolved', { id: pa.id, type: pa.type, result: 'swapped' });
-    game.pendingAction = null;
-    sendGameState(room);
-    return;
-  }
-
-  if(pa.type === 'deal_breaker'){
-    const target = pa.targets[0]; const color = pa.payload.color;
-    const set = game.players[target].properties[color] || [];
-    if(set && set.length>0){
-      game.players[pa.actor].properties[color] = game.players[pa.actor].properties[color] || [];
-      game.players[pa.actor].properties[color] = game.players[pa.actor].properties[color].concat(set);
-      game.players[target].properties[color] = [];
+  else if(pa.type === 'sly_deal'){
+    const target = pa.targets[0];
+    if (pa.responses[target].state === 'accepted') {
+        executed = true;
+        const victimCard = pa.payload.targetCardId;
+        const removed = removePropertyFromOwner(game, target, victimCard);
+        if(removed){ const meta = cardById(victimCard); const color = (meta && meta.colors && meta.colors[0]) || 'unassigned'; givePropertyTo(game, pa.actor, victimCard, color); }
     }
-    if(pa.payload.cardId) game.discard.push(pa.payload.cardId);
-    pa.resolved = true;
-    io.to(room).emit('action_resolved', { id: pa.id, type: pa.type, result: 'stolen_set' });
-    game.pendingAction = null;
-    sendGameState(room);
-    return;
+  }
+  else if(pa.type === 'forced_deal'){
+    const target = pa.targets[0];
+    if (pa.responses[target].state === 'accepted') {
+        executed = true;
+        const myCard = pa.payload.myCardId; const theirCard = pa.payload.theirCardId;
+        const removedMine = removePropertyFromOwner(game, pa.actor, myCard);
+        const removedTheirs = removePropertyFromOwner(game, target, theirCard);
+        if(removedMine) givePropertyTo(game, target, myCard);
+        if(removedTheirs) givePropertyTo(game, pa.actor, theirCard);
+    }
+  }
+  else if(pa.type === 'deal_breaker'){
+    const target = pa.targets[0];
+    if (pa.responses[target].state === 'accepted') {
+        executed = true;
+        const color = pa.payload.color;
+        const set = game.players[target].properties[color] || [];
+        if(set && set.length>0){
+          game.players[pa.actor].properties[color] = game.players[pa.actor].properties[color] || [];
+          game.players[pa.actor].properties[color] = game.players[pa.actor].properties[color].concat(set);
+          game.players[target].properties[color] = [];
+        }
+    }
   }
 
-  pa.resolved = true;
   if(pa.payload && pa.payload.cardId) game.discard.push(pa.payload.cardId);
-  io.to(room).emit('action_resolved', { id: pa.id, type: pa.type, result: 'noop' });
+  pa.resolved = true;
+  io.to(room).emit('action_resolved', { id: pa.id, type: pa.type, executed: executed });
   game.pendingAction = null;
   sendGameState(room);
 }

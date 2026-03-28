@@ -39,14 +39,16 @@ const colorNames = {
     'utility': 'Предприятия', 'any': 'Разноцветный'
 };
 
-// Базовые цвета для игры
 const bgColors = {
     'brown': '#8B4513', 'lightblue': '#87CEEB', 'pink': '#FF69B4',
     'orange': '#FF8C00', 'red': '#FF0000', 'yellow': '#FFD700',
     'green': '#008000', 'darkblue': '#00008B', 'railroad': '#000000', 'utility': '#7f8c8d'
 };
 
-fetch('/cards_data.json').then(res => res.json()).then(data => { allCardsData = data; });
+fetch('/cards_data.json?v=' + new Date().getTime())
+    .then(res => res.json())
+    .then(data => { allCardsData = data; })
+    .catch(err => console.error("Ошибка загрузки колоды:", err));
 
 socket.on('connect', () => { 
     statusEl.textContent = '🟢 Подключено. Ждем входа...'; 
@@ -146,9 +148,10 @@ document.addEventListener('pointermove', (e) => {
     const elementBelow = document.elementFromPoint(e.clientX, e.clientY);
     draggedCard.style.visibility = 'visible';
     
-    const zone = elementBelow?.closest('.board-section');
-    document.querySelectorAll('.board-section').forEach(el => el.classList.remove('drag-over'));
-    if (zone && (zone.id === 'player-bank' || zone.id === 'player-properties' || zone.id === 'action-zone')) {
+    const zone = elementBelow?.closest('.board-section, #action-zone, #discard-pile');
+    document.querySelectorAll('.board-section, #action-zone, #discard-pile').forEach(el => el.classList.remove('drag-over'));
+    
+    if (zone && (zone.id === 'player-bank' || zone.id === 'player-properties' || zone.id === 'action-zone' || zone.id === 'discard-pile')) {
         zone.classList.add('drag-over');
     }
 });
@@ -162,8 +165,8 @@ document.addEventListener('pointerup', (e) => {
     const elementBelow = document.elementFromPoint(e.clientX, e.clientY);
     draggedCard.style.visibility = 'visible';
     
-    const zone = elementBelow?.closest('.board-section');
-    document.querySelectorAll('.board-section').forEach(el => el.classList.remove('drag-over'));
+    const zone = elementBelow?.closest('.board-section, #action-zone, #discard-pile');
+    document.querySelectorAll('.board-section, #action-zone, #discard-pile').forEach(el => el.classList.remove('drag-over'));
     
     const cardId = tempCard.dataset.id;
     const origin = tempCard.dataset.origin; 
@@ -214,7 +217,15 @@ document.addEventListener('pointerup', (e) => {
         }
 
         if (origin === 'hand') {
-            if (zone.id === 'player-bank') {
+            // ИСПРАВЛЕНИЕ: Блокируем разыгрывание "Нет" напрямую на стол
+            if (cardData.action_type === 'just_say_no' && zone.id !== 'discard-pile') {
+                alert('Карту "Просто скажи НЕТ" можно разыграть только в ответ на действие противника во всплывающем окне!');
+                return returnCardToHand();
+            }
+
+            if (zone.id === 'discard-pile') {
+                socket.emit('intent_discard', { room: 'test_room', playerId: myPlayerId, cardId: cardId }, callback);
+            } else if (zone.id === 'player-bank') {
                 if (cardData.type === 'property' || cardData.type === 'property_wild') {
                     alert('Недвижимость нельзя класть в Банк!');
                     return returnCardToHand();
@@ -245,24 +256,59 @@ document.addEventListener('pointerup', (e) => {
     } else returnCardToHand();
 });
 
-// --- ОБРАБОТКА АТАКИ / ОПЛАТЫ ---
+// ==========================================
+// НОВАЯ СИСТЕМА: ОЧЕРЕДЬ МОДАЛЬНЫХ ОКОН
+// ==========================================
+let networkModalQueue = [];
+let isNetworkModalActive = false;
+
 socket.on('action_request', (req) => {
-    const fromPlayer = currentGameState.players[req.from]?.name || 'Соперник';
+    networkModalQueue.push({ type: 'action', data: req });
+    processNetworkModalQueue();
+});
+
+socket.on('counter_request', (req) => {
+    networkModalQueue.push({ type: 'counter', data: req });
+    processNetworkModalQueue();
+});
+
+function processNetworkModalQueue() {
+    if (isNetworkModalActive || networkModalQueue.length === 0) return;
+    isNetworkModalActive = true;
+    
+    const item = networkModalQueue.shift();
+    if (item.type === 'action') buildActionModal(item.data);
+    else if (item.type === 'counter') buildCounterModal(item.data);
+}
+
+function closeNetworkModal() {
+    targetModal.classList.add('hidden');
+    isNetworkModalActive = false;
+    processNetworkModalQueue(); // Открываем следующее окно, если есть
+}
+
+// Построение окна "На вас напали!"
+function buildActionModal(req) {
     targetModal.classList.remove('hidden');
     modalBody.innerHTML = '';
     btnCancelAction.style.display = 'none'; 
 
     let isPayment = false;
     let amountOwed = req.amount || 0; 
+    const fromPlayer = currentGameState.players[req.from]?.name || 'Соперник';
 
     let actionText = 'применил против вас действие!';
     if (req.type === 'sly_deal') actionText = 'пытается украсть вашу недвижимость!';
     if (req.type === 'deal_breaker') actionText = 'пытается украсть ваш полный комплект!';
     if (req.type === 'forced_deal') actionText = 'предлагает вынужденный обмен!';
-    
     if (req.type === 'debt_collector') { actionText = 'требует у вас 5M долга!'; isPayment = true; }
     if (req.type === 'birthday') { actionText = 'требует подарок на День Рождения (2M)!'; isPayment = true; }
     if (req.type === 'rent') { actionText = `требует уплатить ренту (${amountOwed}M)!`; isPayment = true; }
+
+    // Если это контр-удар!
+    if (req.counterNo) {
+        actionText = 'ОТВЕТИЛ СВОИМ "НЕТ" на ваше "НЕТ"! Действие снова в силе!';
+    }
 
     modalTitle.textContent = `⚠️ ВНИМАНИЕ! ${fromPlayer} ${actionText}`;
 
@@ -278,8 +324,8 @@ socket.on('action_request', (req) => {
         btnNo.style.background = '#e74c3c';
         btnNo.textContent = '🛑 Сыграть: Просто скажи "НЕТ"!';
         btnNo.onclick = () => {
-            targetModal.classList.add('hidden');
             socket.emit('respond_action', { room: 'test_room', playerId: myPlayerId, pendingId: req.id, action: 'decline', playedJustSayNoCardId: justSayNoCards[0] });
+            closeNetworkModal();
         };
         modalBody.appendChild(btnNo);
     }
@@ -295,18 +341,62 @@ socket.on('action_request', (req) => {
         const btnAccept = document.createElement('button');
         btnAccept.className = 'modal-btn';
         btnAccept.style.background = '#27ae60';
-        btnAccept.textContent = 'Смириться (Отдать карту)';
+        btnAccept.textContent = 'Смириться (Принять)';
         btnAccept.onclick = () => {
-            targetModal.classList.add('hidden');
             socket.emit('respond_action', { room: 'test_room', playerId: myPlayerId, pendingId: req.id, action: 'accept' });
+            closeNetworkModal();
         };
         modalBody.appendChild(btnAccept);
     }
-});
+}
+
+// Построение окна для Атакующего: "Ваша жертва сопротивляется!"
+function buildCounterModal(req) {
+    targetModal.classList.remove('hidden');
+    modalBody.innerHTML = '';
+    btnCancelAction.style.display = 'none';
+
+    modalTitle.textContent = `Игрок ${req.fromName} сыграл "Просто скажи НЕТ"!`;
+
+    const myHand = currentGameState.players[myPlayerId].hand;
+    const justSayNoCards = myHand.filter(cardId => {
+        const c = allCardsData.find(data => data.id === cardId);
+        return c && c.action_type === 'just_say_no';
+    });
+
+    // У Атакующего тоже есть карта "Нет"!
+    if (justSayNoCards.length > 0) {
+        const btnNo = document.createElement('button');
+        btnNo.className = 'modal-btn';
+        btnNo.style.background = '#e74c3c';
+        btnNo.textContent = '🛑 Контр-удар! Сыграть своё "НЕТ"!';
+        btnNo.onclick = () => {
+            // Передаем targetId, чтобы сервер знал, кому мы пробиваем защиту
+            socket.emit('respond_action', { room: 'test_room', playerId: myPlayerId, pendingId: req.id, action: 'decline', playedJustSayNoCardId: justSayNoCards[0], targetId: req.targetId });
+            closeNetworkModal();
+        };
+        modalBody.appendChild(btnNo);
+    }
+
+    const btnAccept = document.createElement('button');
+    btnAccept.className = 'modal-btn';
+    btnAccept.style.background = '#27ae60';
+    btnAccept.textContent = 'Смириться (Ваше действие отменено)';
+    btnAccept.onclick = () => {
+        socket.emit('respond_action', { room: 'test_room', playerId: myPlayerId, pendingId: req.id, action: 'accept', targetId: req.targetId });
+        closeNetworkModal();
+    };
+    modalBody.appendChild(btnAccept);
+}
 
 socket.on('action_resolved', (res) => {
-    if (res.result === 'cancelled_by_no') alert('Действие отменено картой "Просто скажи Нет"!');
+    // Показываем алерт только если действие было отменено картой "Нет"
+    if (res.executed === false) {
+        alert('Действие было полностью отменено картой "Просто скажи Нет"!');
+    }
 });
+// ==========================================
+
 
 // МЕНЮ ВЫБОРА КАРТ ДЛЯ ОПЛАТЫ ДОЛГА
 function showPaymentSelection(amountOwed, pendingId) {
@@ -398,7 +488,6 @@ function showPaymentSelection(amountOwed, pendingId) {
     btnConfirmPayment.style.background = '#27ae60';
     btnConfirmPayment.textContent = 'Подтвердить оплату';
     btnConfirmPayment.onclick = () => {
-        targetModal.classList.add('hidden');
         socket.emit('respond_action', { 
             room: 'test_room', 
             playerId: myPlayerId, 
@@ -406,6 +495,7 @@ function showPaymentSelection(amountOwed, pendingId) {
             action: 'accept',
             paymentCards: Array.from(selectedCards) 
         });
+        closeNetworkModal();
     };
     
     modalBody.appendChild(btnConfirmPayment);
@@ -691,9 +781,8 @@ function createCardElement(cardId, assignedColor = null) {
     }
 
     let colorsText = cardData.colors ? cardData.colors.map(c => colorNames[c] || c).join('/') : '';
-    let multiColorStripe = ''; // Переменная для цветной полоски
+    let multiColorStripe = ''; 
 
-    // --- МАГИЯ ЦВЕТНЫХ ПОЛОСОК ---
     if (assignedColor && assignedColor !== 'unassigned') {
         colorsText = `<b style="color: #2c3e50;">(Как: ${colorNames[assignedColor] || assignedColor})</b>`;
         if (bgColors[assignedColor]) {
@@ -702,12 +791,10 @@ function createCardElement(cardId, assignedColor = null) {
         }
     } else if (cardData.colors && cardData.colors.length > 0) {
         if (cardData.colors.length === 1 && cardData.colors[0] !== 'any') {
-            // Одноцветная недвижимость
             if (bgColors[cardData.colors[0]]) {
                 cardEl.style.borderTopColor = bgColors[cardData.colors[0]];
             }
         } else {
-            // Двухцветная недвижимость или Универсальная Джокер-карта
             let gradient = '';
             if (cardData.colors[0] === 'any') {
                 gradient = 'linear-gradient(to right, #e74c3c, #e67e22, #f1c40f, #2ecc71, #3498db, #8e44ad)';
@@ -718,9 +805,8 @@ function createCardElement(cardId, assignedColor = null) {
             }
             
             if (gradient) {
-                // Создаем градиентную полоску, которая идеально закроет базовый бордер
                 multiColorStripe = `<span style="display: block; position: absolute; top: -5px; left: -2px; right: -2px; height: 5px; background: ${gradient}; border-top-left-radius: 6px; border-top-right-radius: 6px; z-index: 1;"></span>`;
-                cardEl.style.borderTopColor = 'transparent'; // Прячем базовую однотонную полоску CSS
+                cardEl.style.borderTopColor = 'transparent'; 
             }
         }
     }
@@ -728,7 +814,6 @@ function createCardElement(cardId, assignedColor = null) {
     let valText = cardData.bank_value !== undefined ? cardData.bank_value : (cardData.value || 0);
     let descText = cardData.description ? `<div style="font-size: 8px; color: #555; text-align: center; margin-top: 5px; position: relative; z-index: 2;">${cardData.description}</div>` : '';
 
-    // Если есть картинка, она накладывается фоном
     if (cardData.filename) {
         const imageUrl = cardData.filename.replace('/public', '');
         cardEl.style.backgroundImage = `url('${imageUrl}')`;
@@ -837,7 +922,10 @@ function renderGame() {
             cardEl.addEventListener('pointerdown', (e) => {
                 if (e.button === 2) return;
                 if (!isMyTurn) { alert('Дождитесь своего хода!'); return; }
-                if (currentGameState.playsThisTurn >= 3) { alert('Сыграно максимум карт (3)!'); return; }
+                
+                if (currentGameState.playsThisTurn >= 3) {
+                    // Разрешаем захват, чтобы игрок мог выкинуть карту в мусорку
+                }
 
                 isDragging = false;
                 startX = e.clientX;
@@ -849,6 +937,8 @@ function renderGame() {
                 shiftY = e.clientY - originalCardRect.top;
             });
             handContainer.appendChild(cardEl);
+        } else {
+            console.error(`🚨 ОШИБКА: Сервер выдал карту с ID [${cardId}], но её нет в cards_data.json!`);
         }
     });
 
