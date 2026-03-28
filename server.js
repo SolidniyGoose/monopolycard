@@ -4,6 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const fs = require('fs');
 const path = require('path');
+const sqlite3 = require('sqlite3').verbose(); // Подключаем базу данных!
 
 const app = express();
 const server = http.createServer(app);
@@ -17,28 +18,43 @@ try {
   console.log('[server] Загружена колода:', cardsData.length, 'карт');
 } catch (e) {
   console.warn('[server] Файл cards_data.json не найден!', CARDS_JSON_PATH);
-  cardsData = [];
 }
 
-app.get('/cards_data.json', (req, res) => {
-  res.json(cardsData);
+// === ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ===
+const db = new sqlite3.Database(path.join(__dirnameServer, 'database.sqlite'));
+db.serialize(() => {
+  // Создаем таблицу пользователей, если её нет
+  db.run("CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, wins INTEGER DEFAULT 0)");
 });
 
+app.get('/cards_data.json', (req, res) => { res.json(cardsData); });
 app.use(express.static(path.join(__dirnameServer, 'public')));
 
-const games = new Map();
+const games = new Map(); // Хранилище комнат
 
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
 function generateId(prefix='id'){ return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,6); }
 function cardById(id){ return cardsData.find(c=>c.id === id); }
 
-function getOrCreateGame(room){
+// --- ФУНКЦИИ ЛОББИ И БД ---
+function broadcastLobby() {
+  const activeRooms = [];
+  for(const [id, game] of games.entries()) {
+     activeRooms.push({ id, name: game.name, hasPassword: !!game.password, playersCount: Object.keys(game.players).length });
+  }
+  db.all("SELECT name, wins FROM users ORDER BY wins DESC LIMIT 10", (err, leaderboard) => {
+     io.emit('lobby_update', { rooms: activeRooms, leaderboard: leaderboard || [] });
+  });
+}
+
+function getOrCreateGame(room, roomName = 'Комната', password = ''){
   if(!games.has(room)){
     const g = {
-      id: room, players: {}, deck: cardsData.map(c=>c.id).slice(), discard: [], turnOrder: [], turnIndex: 0, playsThisTurn: 0, pendingAction: null
+      id: room, name: roomName, password: password, players: {}, deck: cardsData.map(c=>c.id).slice(), discard: [], turnOrder: [], turnIndex: 0, playsThisTurn: 0, pendingAction: null
     };
     shuffle(g.deck);
     games.set(room, g);
+    broadcastLobby(); // Обновляем лобби для всех при создании комнаты
   }
   return games.get(room);
 }
@@ -54,24 +70,20 @@ function sendGameState(room){
     }
     playersSummary[pid].hand = game.players[pid].hand.slice();
     const st = {
-      id: game.id, players: playersSummary, deckCount: game.deck.length, discardCount: game.discard.length, turnPlayerId: game.turnOrder[game.turnIndex] || null, playsThisTurn: game.playsThisTurn,
+      id: game.id, name: game.name, players: playersSummary, deckCount: game.deck.length, discardCount: game.discard.length, turnPlayerId: game.turnOrder[game.turnIndex] || null, playsThisTurn: game.playsThisTurn,
       pendingAction: game.pendingAction ? { id: game.pendingAction.id, type: game.pendingAction.type, actor: game.pendingAction.actor, status: (game.pendingAction.resolved ? 'resolved' : 'pending') } : null
     };
     io.to(p.socketId).emit('game_state', st);
   }
 }
 
+// --- ИГРОВАЯ МЕХАНИКА ---
 function drawToPlayer(game, playerId, count){
   const drawn = [];
   for(let i=0;i<count;i++){
     if(game.deck.length === 0){ game.deck = game.discard.splice(0); shuffle(game.deck); }
     if(game.deck.length === 0) break;
-    const c = game.deck.shift();
-    game.players[playerId].hand.push(c);
-    drawn.push(c);
-  }
-  if (drawn.length > 0) {
-      console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' взял из колоды: [ ${drawn.join(', ')} ]. На руках: ${game.players[playerId].hand.length} шт.`);
+    const c = game.deck.shift(); game.players[playerId].hand.push(c); drawn.push(c);
   }
   return drawn;
 }
@@ -79,441 +91,325 @@ function drawToPlayer(game, playerId, count){
 function removeFromHand(game, playerId, cardId){
   const idx = game.players[playerId].hand.indexOf(cardId);
   if(idx === -1) return false;
-  game.players[playerId].hand.splice(idx,1);
-  return true;
+  game.players[playerId].hand.splice(idx,1); return true;
 }
 
 function processManualPayment(game, payerId, recipientId, cardIds) {
-  const payer = game.players[payerId];
-  const recipient = game.players[recipientId];
-
+  const payer = game.players[payerId]; const recipient = game.players[recipientId];
   for (const cardId of cardIds) {
      let idx = payer.bank.indexOf(cardId);
-     if (idx !== -1) {
-        payer.bank.splice(idx, 1);
-        recipient.bank.push(cardId);
-        continue;
-     }
+     if (idx !== -1) { payer.bank.splice(idx, 1); recipient.bank.push(cardId); continue; }
      for (const color of Object.keys(payer.properties)) {
         idx = payer.properties[color].indexOf(cardId);
-        if (idx !== -1) {
-           payer.properties[color].splice(idx, 1);
-           recipient.properties[color] = recipient.properties[color] || [];
-           recipient.properties[color].push(cardId);
-           break;
-        }
+        if (idx !== -1) { payer.properties[color].splice(idx, 1); recipient.properties[color] = recipient.properties[color] || []; recipient.properties[color].push(cardId); break; }
      }
   }
 }
 
 function givePropertyTo(game, toId, cardId, chosenColor){
-  const player = game.players[toId];
-  let color = chosenColor;
-  const meta = cardById(cardId);
-  if(!color){
-    if(meta && meta.colors && meta.colors.length>0) color = meta.colors[0];
-    else color = 'unassigned';
-  }
-  player.properties[color] = player.properties[color] || [];
-  player.properties[color].push(cardId);
+  const player = game.players[toId]; let color = chosenColor; const meta = cardById(cardId);
+  if(!color){ color = (meta && meta.colors && meta.colors.length>0) ? meta.colors[0] : 'unassigned'; }
+  player.properties[color] = player.properties[color] || []; player.properties[color].push(cardId);
 }
 
 function removePropertyFromOwner(game, ownerId, cardId){
-  const owner = game.players[ownerId];
-  if(!owner) return false;
+  const owner = game.players[ownerId]; if(!owner) return false;
   for(const [color,arr] of Object.entries(owner.properties)){
-    const idx = arr.indexOf(cardId);
-    if(idx !== -1){ arr.splice(idx,1); return true; }
+    const idx = arr.indexOf(cardId); if(idx !== -1){ arr.splice(idx,1); return true; }
   }
   return false;
 }
 
-io.on('connection', socket=>{
-  socket.on('join_room', ({ room='default', name='Player', playerId }, cb)=>{
-    const game = getOrCreateGame(room);
-    let pid = playerId;
+// === SOCKET.IO ===
+io.on('connection', socket => {
+  // Запрос данных лобби (при входе на сайт)
+  socket.on('req_lobby', () => { broadcastLobby(); });
 
+  // Регистрация / Логин
+  socket.on('login', (name, cb) => {
+    db.run("INSERT OR IGNORE INTO users (name) VALUES (?)", [name], () => {
+       cb({ ok: true, name });
+    });
+  });
+  // Смена имени
+  socket.on('change_name', ({ oldName, newName }, cb) => {
+    if (!newName || newName.trim() === '') return cb({ error: 'Имя не может быть пустым' });
+    
+    // Проверяем, не занято ли новое имя
+    db.get("SELECT name FROM users WHERE name = ?", [newName], (err, row) => {
+        if (row) return cb({ error: 'Это имя уже занято кем-то другим!' });
+        
+        // Меняем имя в базе данных (сохраняя победы)
+        db.run("UPDATE users SET name = ? WHERE name = ?", [newName, oldName], (err) => {
+            if (err) return cb({ error: 'Ошибка базы данных' });
+            
+            // Если игрок в этот момент находился в комнате, обновляем имя и там
+            for (const [roomId, game] of games.entries()) {
+                for (const pid of Object.keys(game.players)) {
+                    if (game.players[pid].name === oldName) {
+                        game.players[pid].name = newName;
+                        sendGameState(roomId);
+                    }
+                }
+            }
+            
+            broadcastLobby(); // Мгновенно обновляем Таблицу Лидеров у всех
+            cb({ ok: true });
+        });
+    });
+  });
+
+  // Создание комнаты
+  socket.on('create_room', ({ roomName, password }, cb) => {
+    const roomId = generateId('r');
+    getOrCreateGame(roomId, roomName, password);
+    cb({ ok: true, roomId });
+  });
+
+  // Вход в комнату
+  socket.on('join_room', ({ room, password, name, playerId }, cb) => {
+    const game = games.get(room);
+    if (!game) return cb && cb({ error: 'Комната не найдена или удалена' });
+
+    // Проверка пароля (только для новых подключений)
+    if (game.password && !playerId && game.password !== password) {
+       return cb && cb({ error: 'Неверный пароль!' });
+    }
+
+    let pid = playerId;
     if (pid && game.players[pid]) {
-      game.players[pid].socketId = socket.id; 
-      game.players[pid].connected = true;     
-      game.players[pid].name = name || game.players[pid].name;
-      console.log(`[io] ${name} ПЕРЕПОДКЛЮЧИЛСЯ к комнате ${room} (ID: ${pid})`);
-      socket.join(room);
-      sendGameState(room);
+      game.players[pid].socketId = socket.id; game.players[pid].connected = true; game.players[pid].name = name || game.players[pid].name;
+      socket.join(room); sendGameState(room); broadcastLobby();
       return cb && cb({ ok: true, playerId: pid });
     } else if (pid) {
       return cb && cb({ error: 'session_not_found' });
     }
 
     pid = generateId('p');
-    game.players[pid] = { id: pid, name: name || 'Player', socketId: socket.id, hand: [], bank: [], properties: {}, flags: { doubleNextRent: false }, connected: true };
+    game.players[pid] = { id: pid, name: name, socketId: socket.id, hand: [], bank: [], properties: {}, flags: {}, connected: true };
     game.turnOrder.push(pid);
-    console.log(`[io] ${name} ЗАШЕЛ В ИГРУ (Новый ID: ${pid})`);
-    
-    socket.join(room);
-    sendGameState(room);
+    socket.join(room); sendGameState(room); broadcastLobby();
     if(cb) cb({ ok: true, playerId: pid });
   });
 
+  // Выход из комнаты
+  // Выход из комнаты (Полный сброс игрока)
+  socket.on('leave_room', ({ room, playerId }) => {
+     const game = games.get(room);
+     if (game && game.players[playerId]) {
+         socket.leave(room);
+         
+         // 1. Скидываем все карты игрока в мусорку (Сброс)
+         const p = game.players[playerId];
+         if (p.hand.length > 0) game.discard.push(...p.hand);
+         if (p.bank.length > 0) game.discard.push(...p.bank);
+         for (const color in p.properties) {
+             game.discard.push(...p.properties[color]);
+         }
+         
+         // 2. Удаляем игрока из памяти комнаты
+         delete game.players[playerId];
+         
+         // 3. Корректируем очередь хода
+         const tIdx = game.turnOrder.indexOf(playerId);
+         if (tIdx !== -1) {
+             game.turnOrder.splice(tIdx, 1);
+             // Если сейчас был ход вышедшего игрока, передаем ход следующему
+             if (game.turnIndex === tIdx) {
+                 game.playsThisTurn = 0;
+                 if (game.turnIndex >= game.turnOrder.length) game.turnIndex = 0;
+             } else if (game.turnIndex > tIdx) {
+                 game.turnIndex--;
+             }
+         }
+
+         // Если все отключились - удаляем комнату
+         const anyConnected = Object.values(game.players).some(pl => pl.connected);
+         if (!anyConnected) games.delete(room);
+         else sendGameState(room); // Обновляем стол для оставшихся
+         
+         broadcastLobby();
+     }
+  });
+
+  // Победа (Запись в БД)
+  socket.on('player_won', ({ room, playerName }) => {
+      db.run("UPDATE users SET wins = wins + 1 WHERE name = ?", [playerName], () => {
+          broadcastLobby(); // Обновляем таблицу лидеров
+      });
+  });
+
   socket.on('start_game', ({ room }, cb)=>{
-    const game = games.get(room);
-    if(!game) return cb && cb({ error: 'no_game' });
-    
-    console.log(`\n[МОНИТОРИНГ] ====== ИГРА НАЧАЛАСЬ ======`);
-    game.deck = cardsData.map(c=>c.id).slice();
-    shuffle(game.deck);
-    game.discard = [];
-    for(const pid of game.turnOrder){ 
-        game.players[pid].hand = []; 
-        drawToPlayer(game, pid, 5); 
-    }
+    const game = games.get(room); if(!game) return cb && cb({ error: 'no_game' });
+    game.deck = cardsData.map(c=>c.id).slice(); shuffle(game.deck); game.discard = [];
+    for(const pid of game.turnOrder){ game.players[pid].hand = []; drawToPlayer(game, pid, 5); }
     game.turnIndex = 0; game.playsThisTurn = 0; game.pendingAction = null;
-    sendGameState(room);
-    if(cb) cb({ ok: true });
+    sendGameState(room); if(cb) cb({ ok: true });
   });
 
   socket.on('intent_draw', ({ room, playerId, count=1 }, cb)=>{
-    const game = games.get(room);
-    if(!game) return cb && cb({ error: 'no_game' });
-    if(game.turnOrder[game.turnIndex] !== playerId) return cb && cb({ error: 'not_your_turn' });
-    const drawn = drawToPlayer(game, playerId, count);
-    sendGameState(room);
-    if(cb) cb({ ok:true, drawn });
+    const game = games.get(room); if(!game) return;
+    if(game.turnOrder[game.turnIndex] !== playerId) return;
+    drawToPlayer(game, playerId, count); sendGameState(room); if(cb) cb({ ok:true });
   });
 
   socket.on('intent_discard', ({ room, playerId, cardId }, cb)=>{
-    const game = games.get(room);
-    if(!game) return cb && cb({ error: 'no_game' });
-    if(game.turnOrder[game.turnIndex] !== playerId) return cb && cb({ error: 'not_your_turn' });
-
-    const ok = removeFromHand(game, playerId, cardId);
-    if(!ok) return cb && cb({ error: 'card_not_in_hand' });
-    
-    console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' ВЫБРОСИЛ В СБРОС карту: [ ${cardId} ]`);
-    
-    game.discard.push(cardId);
-    sendGameState(room);
-    if(cb) cb({ ok:true });
+    const game = games.get(room); if(!game) return;
+    if(game.turnOrder[game.turnIndex] !== playerId) return;
+    const ok = removeFromHand(game, playerId, cardId); if(!ok) return;
+    game.discard.push(cardId); sendGameState(room); if(cb) cb({ ok:true });
   });
 
   socket.on('intent_move_to_bank', ({ room, playerId, cardId }, cb)=>{
-    const game = games.get(room);
-    if(!game) return cb && cb({ error: 'no_game' });
-    if(game.turnOrder[game.turnIndex] !== playerId) return cb && cb({ error: 'not_your_turn' });
-    if(game.playsThisTurn >= 3) return cb && cb({ error: 'max_plays' });
-
-    const ok = removeFromHand(game, playerId, cardId);
-    if(!ok) return cb && cb({ error: 'card_not_in_hand' });
-    
-    console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' положил в БАНК карту: [ ${cardId} ]`);
-    
-    game.players[playerId].bank.push(cardId);
-    game.playsThisTurn++;
-    sendGameState(room);
-    if(cb) cb({ ok:true });
+    const game = games.get(room); if(!game) return;
+    if(game.turnOrder[game.turnIndex] !== playerId || game.playsThisTurn >= 3) return;
+    const ok = removeFromHand(game, playerId, cardId); if(!ok) return;
+    game.players[playerId].bank.push(cardId); game.playsThisTurn++;
+    sendGameState(room); if(cb) cb({ ok:true });
   });
 
   socket.on('play_property', ({ room, playerId, cardId, chosenColor }, cb)=>{
-    const game = games.get(room);
-    if(!game) return cb && cb({ error:'no_game' });
-    if(game.turnOrder[game.turnIndex] !== playerId) return cb && cb({ error: 'not_your_turn' });
-    if(game.playsThisTurn >= 3) return cb && cb({ error: 'max_plays' });
-
-    const ok = removeFromHand(game, playerId, cardId);
-    if(!ok) return cb && cb({ error: 'card_not_in_hand' });
-
-    const meta = cardById(cardId);
-    let assignColor = chosenColor;
-    if(meta && meta.type === 'property_wild'){
-      if(!assignColor) return cb && cb({ error: 'choose_color_for_wild' });
-    } else if(meta && meta.type === 'property'){
-      assignColor = meta.colors && meta.colors[0];
-    }
-    
-    console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' выложил НЕДВИЖИМОСТЬ: [ ${cardId} ] (Цвет: ${assignColor})`);
-    
-    givePropertyTo(game, playerId, cardId, assignColor);
-    game.playsThisTurn++;
-    sendGameState(room);
-    if(cb) cb({ ok:true });
+    const game = games.get(room); if(!game) return;
+    if(game.turnOrder[game.turnIndex] !== playerId || game.playsThisTurn >= 3) return;
+    const ok = removeFromHand(game, playerId, cardId); if(!ok) return;
+    const meta = cardById(cardId); let assignColor = chosenColor || (meta.colors ? meta.colors[0] : 'unassigned');
+    givePropertyTo(game, playerId, cardId, assignColor); game.playsThisTurn++;
+    sendGameState(room); if(cb) cb({ ok:true });
   });
 
   socket.on('play_action', ({ room, playerId, cardId, opts }, cb)=>{
-    const game = games.get(room);
-    if(!game) return cb && cb({ error:'no_game' });
-    if(game.turnOrder[game.turnIndex] !== playerId) return cb && cb({ error: 'not_your_turn' });
-    if(game.playsThisTurn >= 3) return cb && cb({ error: 'max_plays' });
-
-    const meta = cardById(cardId);
-    if(!meta || (meta.type !== 'action' && meta.type !== 'rent')) return cb && cb({ error: 'not_action_card' });
-
-    const ok = removeFromHand(game, playerId, cardId);
-    if(!ok) return cb && cb({ error: 'card_not_in_hand' });
-
+    const game = games.get(room); if(!game) return;
+    if(game.turnOrder[game.turnIndex] !== playerId || game.playsThisTurn >= 3) return;
+    const meta = cardById(cardId); if(!meta) return;
+    const ok = removeFromHand(game, playerId, cardId); if(!ok) return;
     const t = meta.action_type || meta.type;
-    console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' разыграл ДЕЙСТВИЕ: [ ${cardId} ] (${t})`);
-    
     const finishPlay = () => { game.discard.push(cardId); game.playsThisTurn++; };
 
-    if(t === 'pass_go'){
-      drawToPlayer(game, playerId, 2);
-      finishPlay(); sendGameState(room);
-      return cb && cb({ ok:true, action:'pass_go' });
+    if(t === 'pass_go'){ drawToPlayer(game, playerId, 2); finishPlay(); sendGameState(room); return cb && cb({ ok:true }); }
+    if(t === 'house' || t === 'hotel'){
+      const marker = (t === 'house') ? `HOUSE_${cardId}` : `HOTEL_${cardId}`;
+      game.players[playerId].properties[opts.color] = game.players[playerId].properties[opts.color] || [];
+      game.players[playerId].properties[opts.color].push(marker); finishPlay(); sendGameState(room); return cb && cb({ ok:true });
     }
 
-    if(t === 'debt_collector'){
-      const target = opts && opts.target;
-      const targets = target ? [target] : Object.keys(game.players).filter(id=>id !== playerId);
-      const pa = { id: generateId('pa'), type: 'debt_collector', actor: playerId, targets, payload: { amount: 5, cardId }, responses: {}, resolved: false };
-      for(const tpid of targets) pa.responses[tpid] = { state: 'pending_target', paymentCards: [] };
-      game.pendingAction = pa;
-      for(const tpid of targets){
-        io.to(game.players[tpid].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, amount: 5, payload: pa.payload });
-      }
-      sendGameState(room);
-      return cb && cb({ ok:true, pending: pa.id });
-    }
-
+    // Обработка Атак
+    let targets = []; let amount = 0;
+    if(t === 'debt_collector'){ targets = opts.target ? [opts.target] : Object.keys(game.players).filter(id=>id!==playerId); amount = 5; }
+    if(t === 'birthday'){ targets = Object.keys(game.players).filter(id=>id!==playerId); amount = 2; }
     if(t === 'rent' || t === 'double_the_rent'){
-      const color = opts && opts.color;
-      const targets = opts && opts.targets ? opts.targets : Object.keys(game.players).filter(id=>id!==playerId);
-      const actor = game.players[playerId];
-      const chosenColors = (meta.colors && meta.colors.includes('any')) || t === 'double_the_rent' ? [color] : (meta.colors || []);
-      
-      let baseAmount = 0;
+      targets = opts.targets ? opts.targets : Object.keys(game.players).filter(id=>id!==playerId);
+      const chosenColors = (meta.colors && meta.colors.includes('any')) || t === 'double_the_rent' ? [opts.color] : (meta.colors || []);
       for(const c of chosenColors) {
-          const set = actor.properties[c] || [];
+          const set = game.players[playerId].properties[c] || [];
           const setCount = set.filter(x=> typeof x === 'string' && !x.startsWith('HOUSE_') && !x.startsWith('HOTEL_')).length;
-          const hasHouse = set.some(x=> typeof x === 'string' && x.startsWith('HOUSE_'));
-          const hasHotel = set.some(x=> typeof x === 'string' && x.startsWith('HOTEL_'));
-
-          const metaExample = cardsData.find(card => card.type === 'property' && card.colors && card.colors.includes(c));
-          if(metaExample && metaExample.rent_values && setCount > 0){
-             let rent = metaExample.rent_values[Math.min(setCount, metaExample.set_size) - 1] || 0;
-             if (hasHouse && setCount >= metaExample.set_size) rent += 3;
-             if (hasHotel && setCount >= metaExample.set_size) rent += 4;
-             baseAmount += rent;
+          const metaEx = cardsData.find(card => card.type === 'property' && card.colors && card.colors.includes(c));
+          if(metaEx && metaEx.rent_values && setCount > 0){
+             amount += metaEx.rent_values[Math.min(setCount, metaEx.set_size) - 1] || 0;
+             if (set.some(x=> typeof x === 'string' && x.startsWith('HOUSE_')) && setCount >= metaEx.set_size) amount += 3;
+             if (set.some(x=> typeof x === 'string' && x.startsWith('HOTEL_')) && setCount >= metaEx.set_size) amount += 4;
           }
       }
-      if (baseAmount === 0 && meta.bank_value) baseAmount = 1;
-      if (t === 'double_the_rent') baseAmount *= 2;
-
-      const pa = { id: generateId('pa'), type: 'rent', actor: playerId, targets, payload: { cardId, colors: chosenColors, amount: baseAmount }, responses: {}, resolved:false };
-      for(const tpid of targets) pa.responses[tpid] = { state: 'pending_target', paymentCards: [] };
-      game.pendingAction = pa;
-      for(const tpid of targets){
-        io.to(game.players[tpid].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, amount: baseAmount, payload: pa.payload });
-      }
-      sendGameState(room);
-      return cb && cb({ ok:true, pending: pa.id });
+      if (amount === 0 && meta.bank_value) amount = 1;
+      if (t === 'double_the_rent') amount *= 2;
     }
+    if(t === 'sly_deal' || t === 'forced_deal' || t === 'deal_breaker') targets = [opts.target];
 
-    if(t === 'sly_deal'){
-      const target = opts && opts.target; const targetCardId = opts && opts.targetCardId;
-      const pa = { id: generateId('pa'), type: 'sly_deal', actor: playerId, targets: [target], payload: { cardId, targetCardId }, responses: {}, resolved:false };
-      pa.responses[target] = { state: 'pending_target', paymentCards: [] };
-      game.pendingAction = pa;
-      io.to(game.players[target].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, payload: pa.payload });
-      sendGameState(room);
-      return cb && cb({ ok:true, pending: pa.id });
-    }
-
-    if(t === 'forced_deal'){
-      const target = opts && opts.target; const myCardId = opts && opts.myCardId; const theirCardId = opts && opts.theirCardId;
-      const pa = { id: generateId('pa'), type: 'forced_deal', actor: playerId, targets: [target], payload: { cardId, myCardId, theirCardId }, responses: {}, resolved:false };
-      pa.responses[target] = { state: 'pending_target', paymentCards: [] };
-      game.pendingAction = pa;
-      io.to(game.players[target].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, payload: pa.payload });
-      sendGameState(room);
-      return cb && cb({ ok:true, pending: pa.id });
-    }
-
-    if(t === 'deal_breaker'){
-      const target = opts && opts.target; const color = opts && opts.color; 
-      const pa = { id: generateId('pa'), type: 'deal_breaker', actor: playerId, targets: [target], payload: { cardId, color }, responses: {}, resolved:false };
-      pa.responses[target] = { state: 'pending_target', paymentCards: [] };
-      game.pendingAction = pa;
-      io.to(game.players[target].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, payload: pa.payload });
-      sendGameState(room);
-      return cb && cb({ ok:true, pending: pa.id });
-    }
-
-    if(t === 'house' || t === 'hotel'){
-      const color = opts && opts.color;
-      const marker = (t === 'house') ? `HOUSE_${cardId}` : `HOTEL_${cardId}`;
-      game.players[playerId].properties[color] = game.players[playerId].properties[color] || [];
-      game.players[playerId].properties[color].push(marker);
-      finishPlay();
-      sendGameState(room);
-      return cb && cb({ ok:true });
-    }
-
-    if(t === 'birthday'){
-      const targets = Object.keys(game.players).filter(id => id !== playerId);
-      const pa = { id: generateId('pa'), type: 'birthday', actor: playerId, targets, payload: { amount: 2, cardId }, responses: {}, resolved:false };
-      for(const tpid of targets) pa.responses[tpid] = { state: 'pending_target', paymentCards: [] };
-      game.pendingAction = pa;
-      for(const tpid of targets){
-        io.to(game.players[tpid].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, amount: 2, payload: pa.payload });
-      }
-      sendGameState(room);
-      return cb && cb({ ok:true, pending: pa.id });
-    }
-
-    finishPlay();
-    sendGameState(room);
-    return cb && cb({ ok:true });
+    const pa = { id: generateId('pa'), type: t, actor: playerId, targets, payload: { cardId, ...opts, amount }, responses: {}, resolved:false };
+    for(const tpid of targets) pa.responses[tpid] = { state: 'pending_target', paymentCards: [] };
+    game.pendingAction = pa;
+    for(const tpid of targets) io.to(game.players[tpid].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, amount: amount, payload: pa.payload });
+    
+    sendGameState(room); if(cb) cb({ ok:true, pending: pa.id });
   });
 
-  // НОВАЯ ЛОГИКА ДЛЯ БЕСКОНЕЧНЫХ "ПРОСТО СКАЖИ НЕТ"
   socket.on('respond_action', ({ room, playerId, pendingId, action, playedJustSayNoCardId, paymentCards, targetId }, cb)=>{
-    const game = games.get(room);
-    if(!game || !game.pendingAction || game.pendingAction.id !== pendingId) return cb && cb({ error:'no_pending' });
+    const game = games.get(room); if(!game || !game.pendingAction || game.pendingAction.id !== pendingId) return;
     const pa = game.pendingAction;
     
-    // Кто-то разыграл "НЕТ"
     if(action === 'decline' && playedJustSayNoCardId){
-      const ok = removeFromHand(game, playerId, playedJustSayNoCardId);
-      if(!ok) return cb && cb({ error:'no_card_not_in_hand' });
+      const ok = removeFromHand(game, playerId, playedJustSayNoCardId); if(!ok) return;
       game.discard.push(playedJustSayNoCardId);
-      console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' сыграл ПРОСТО СКАЖИ НЕТ [${playedJustSayNoCardId}]`);
-
       if (playerId === pa.actor) {
-         // Атакующий отвечает своим "НЕТ" на "НЕТ" жертвы
-         if (!targetId || !pa.responses[targetId]) return cb && cb({error:'invalid_target'});
-         pa.responses[targetId].state = 'pending_target'; // Мяч на стороне жертвы
-         io.to(game.players[targetId].socketId).emit('action_request', {
-             id: pa.id, type: pa.type, from: playerId, amount: pa.payload.amount || 0,
-             payload: pa.payload, counterNo: true // Флаг, что это контр-удар
-         });
+         pa.responses[targetId].state = 'pending_target';
+         io.to(game.players[targetId].socketId).emit('action_request', { id: pa.id, type: pa.type, from: playerId, amount: pa.payload.amount || 0, payload: pa.payload, counterNo: true });
       } else {
-         // Жертва защищается картой "НЕТ"
-         pa.responses[playerId].state = 'pending_actor'; // Мяч на стороне атакующего
-         io.to(game.players[pa.actor].socketId).emit('counter_request', {
-             id: pa.id, type: pa.type, targetId: playerId, fromName: game.players[playerId].name
-         });
+         pa.responses[playerId].state = 'pending_actor';
+         io.to(game.players[pa.actor].socketId).emit('counter_request', { id: pa.id, type: pa.type, targetId: playerId, fromName: game.players[playerId].name });
       }
-      sendGameState(room);
-      return cb && cb({ ok:true });
+      sendGameState(room); return cb && cb({ ok:true });
     }
 
-    // Кто-то нажал "Смириться"
     if (action === 'accept') {
-       if (playerId === pa.actor) {
-           // Атакующий смирился с защитой жертвы (отменяем действие)
-           if (!targetId || !pa.responses[targetId]) return cb && cb({error:'invalid_target'});
-           pa.responses[targetId].state = 'cancelled';
-           console.log(`[МОНИТОРИНГ] Игрок '${game.players[playerId].name}' смирился с отказом от '${game.players[targetId].name}'`);
-       } else {
-           // Жертва смирилась с действием или атакой (исполняем действие)
-           pa.responses[playerId].state = 'accepted';
-           pa.responses[playerId].paymentCards = paymentCards || [];
-       }
-       attemptResolvePendingAction(game, room);
-       return cb && cb({ ok:true });
+       if (playerId === pa.actor) { pa.responses[targetId].state = 'cancelled'; } 
+       else { pa.responses[playerId].state = 'accepted'; pa.responses[playerId].paymentCards = paymentCards || []; }
+       attemptResolvePendingAction(game, room); return cb && cb({ ok:true });
     }
   });
 
   socket.on('flip_property', ({ room, playerId, cardId, newColor }, cb)=>{
     const game = games.get(room);
-    let foundColor = null;
     for(const color of Object.keys(game.players[playerId].properties)){
       const idx = game.players[playerId].properties[color].indexOf(cardId);
-      if(idx !== -1){
-        game.players[playerId].properties[color].splice(idx, 1);
-        foundColor = color; break;
-      }
+      if(idx !== -1){ game.players[playerId].properties[color].splice(idx, 1); break; }
     }
     game.players[playerId].properties[newColor] = game.players[playerId].properties[newColor] || [];
-    game.players[playerId].properties[newColor].push(cardId);
-    sendGameState(room);
-    if(cb) cb({ ok:true });
+    game.players[playerId].properties[newColor].push(cardId); sendGameState(room); if(cb) cb({ ok:true });
   });
 
   socket.on('intent_end_turn', ({ room, playerId }, cb)=>{
+    const game = games.get(room); game.playsThisTurn = 0; game.turnIndex = (game.turnIndex + 1) % game.turnOrder.length;
+    sendGameState(room); if(cb) cb({ ok:true });
+  });
+
+  // --- ЧАТ ---
+  socket.on('send_chat_message', ({ room, playerId, message }) => {
     const game = games.get(room);
-    game.playsThisTurn = 0;
-    game.turnIndex = (game.turnIndex + 1) % game.turnOrder.length;
-    sendGameState(room);
-    if(cb) cb({ ok:true });
+    if (!game || !game.players[playerId]) return;
+    
+    // Рассылаем сообщение всем в комнате
+    io.to(room).emit('chat_message', { 
+        sender: game.players[playerId].name, 
+        text: message 
+    });
   });
   
   socket.on('disconnect', ()=>{
     for(const [room, game] of games.entries()){
       for(const pid of Object.keys(game.players)){
         if(game.players[pid].socketId === socket.id){
-          game.players[pid].connected = false;
-          sendGameState(room);
+          game.players[pid].connected = false; sendGameState(room);
         }
       }
     }
+    broadcastLobby();
   });
-
 });
 
 function attemptResolvePendingAction(game, room){
-  const pa = game.pendingAction;
-  if(!pa) return;
-  
-  // Проверяем, все ли жертвы приняли финальное решение (accepted или cancelled)
+  const pa = game.pendingAction; if(!pa) return;
   const allResolved = Object.values(pa.responses).every(r => r.state === 'accepted' || r.state === 'cancelled');
   if(!allResolved) return;
 
-  let executed = false; // Было ли действие выполнено хоть на ком-то
-
+  let executed = false;
   if(pa.type === 'debt_collector' || pa.type === 'birthday' || pa.type === 'rent'){
     for(const t of pa.targets){
-      if (pa.responses[t].state === 'accepted') {
-          executed = true;
-          const resp = pa.responses[t];
-          if (resp && resp.paymentCards && resp.paymentCards.length > 0) {
-              processManualPayment(game, t, pa.actor, resp.paymentCards);
-          }
-      }
+      if (pa.responses[t].state === 'accepted') { executed = true; if (pa.responses[t].paymentCards) processManualPayment(game, t, pa.actor, pa.responses[t].paymentCards); }
     }
-  }
-  else if(pa.type === 'sly_deal'){
-    const target = pa.targets[0];
-    if (pa.responses[target].state === 'accepted') {
-        executed = true;
-        const victimCard = pa.payload.targetCardId;
-        const removed = removePropertyFromOwner(game, target, victimCard);
-        if(removed){ const meta = cardById(victimCard); const color = (meta && meta.colors && meta.colors[0]) || 'unassigned'; givePropertyTo(game, pa.actor, victimCard, color); }
-    }
-  }
-  else if(pa.type === 'forced_deal'){
-    const target = pa.targets[0];
-    if (pa.responses[target].state === 'accepted') {
-        executed = true;
-        const myCard = pa.payload.myCardId; const theirCard = pa.payload.theirCardId;
-        const removedMine = removePropertyFromOwner(game, pa.actor, myCard);
-        const removedTheirs = removePropertyFromOwner(game, target, theirCard);
-        if(removedMine) givePropertyTo(game, target, myCard);
-        if(removedTheirs) givePropertyTo(game, pa.actor, theirCard);
-    }
-  }
-  else if(pa.type === 'deal_breaker'){
-    const target = pa.targets[0];
-    if (pa.responses[target].state === 'accepted') {
-        executed = true;
-        const color = pa.payload.color;
-        const set = game.players[target].properties[color] || [];
-        if(set && set.length>0){
-          game.players[pa.actor].properties[color] = game.players[pa.actor].properties[color] || [];
-          game.players[pa.actor].properties[color] = game.players[pa.actor].properties[color].concat(set);
-          game.players[target].properties[color] = [];
-        }
-    }
+  } else if(pa.type === 'sly_deal' && pa.responses[pa.targets[0]].state === 'accepted'){
+    executed = true; const removed = removePropertyFromOwner(game, pa.targets[0], pa.payload.targetCardId);
+    if(removed){ const meta = cardById(pa.payload.targetCardId); givePropertyTo(game, pa.actor, pa.payload.targetCardId, (meta.colors ? meta.colors[0] : 'unassigned')); }
+  } else if(pa.type === 'forced_deal' && pa.responses[pa.targets[0]].state === 'accepted'){
+    executed = true; const removedMine = removePropertyFromOwner(game, pa.actor, pa.payload.myCardId); const removedTheirs = removePropertyFromOwner(game, pa.targets[0], pa.payload.theirCardId);
+    if(removedMine) givePropertyTo(game, pa.targets[0], pa.payload.myCardId); if(removedTheirs) givePropertyTo(game, pa.actor, pa.payload.theirCardId);
+  } else if(pa.type === 'deal_breaker' && pa.responses[pa.targets[0]].state === 'accepted'){
+    executed = true; const set = game.players[pa.targets[0]].properties[pa.payload.color] || [];
+    if(set.length>0){ game.players[pa.actor].properties[pa.payload.color] = (game.players[pa.actor].properties[pa.payload.color] || []).concat(set); game.players[pa.targets[0]].properties[pa.payload.color] = []; }
   }
 
   if(pa.payload && pa.payload.cardId) game.discard.push(pa.payload.cardId);
-  pa.resolved = true;
-  io.to(room).emit('action_resolved', { id: pa.id, type: pa.type, executed: executed });
-  game.pendingAction = null;
-  sendGameState(room);
+  pa.resolved = true; io.to(room).emit('action_resolved', { id: pa.id, type: pa.type, executed: executed });
+  game.pendingAction = null; sendGameState(room);
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', ()=>{
-  console.log(`[server] listening on 0.0.0.0:${PORT}`);
-});
+server.listen(PORT, '0.0.0.0', ()=> console.log(`[server] listening on 0.0.0.0:${PORT}`));

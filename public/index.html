@@ -2,62 +2,103 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monopoly Deal</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="controls">
-        <span id="status">Подключение...</span>
-        <button id="btn-join">Войти в комнату</button>
-        <button id="btn-start" disabled>Начать игру (Сдать карты)</button>
-        <button id="btn-end-turn" disabled>Завершить ход</button>
-        <span id="turn-indicator"></span>
+
+    <div id="lobby-screen">
+        <h1 class="game-title">MONOPOLY DEAL</h1>
+        
+        <div id="login-box" class="lobby-panel">
+            <h2>Добро пожаловать!</h2>
+            <input type="text" id="player-name-input" placeholder="Введите ваше имя" maxlength="15">
+            <button id="btn-login" class="btn-primary">Войти в игру</button>
+        </div>
+
+        <div id="main-lobby" class="hidden">
+            <div style="display: flex; justify-content: flex-end; width: 800px; max-width: 95vw; margin: 0 auto 15px;">
+                <button id="btn-change-name" class="btn-primary" style="padding: 8px 15px; font-size: 14px; background: #8e44ad;">✏️ Изменить имя</button>
+            </div>
+
+            <div class="lobby-grid">
+                
+                <div class="lobby-panel">
+                    <h2>Игровые комнаты</h2>
+                    <div id="rooms-list" class="scrollable-list">
+                        </div>
+                    
+                    <div class="create-room-box">
+                        <input type="text" id="new-room-name" placeholder="Название комнаты" maxlength="20">
+                        <input type="password" id="new-room-pass" placeholder="Пароль (оставьте пустым, если для всех)">
+                        <button id="btn-create-room" class="btn-success">Создать комнату</button>
+                    </div>
+                </div>
+
+                <div class="lobby-panel">
+                    <h2>🏆 Зал славы (Топ побед)</h2>
+                    <div id="leaderboard-list" class="scrollable-list leaderboard">
+                        </div>
+                </div>
+
+            </div>
+        </div>
     </div>
 
-    <div id="game-board">
-        <div id="opponents-zone">
-            <div class="opponent-placeholder">Ожидание игроков...</div>
+    <div id="game-screen" class="hidden">
+        <div id="controls">
+            <span id="status">🔴 Отключен</span>
+            <button id="btn-start" disabled>▶ Начать игру (сдать карты)</button>
+            <button id="btn-leave" style="background:#c0392b; color:white; border:none; padding:5px 10px; border-radius:3px; cursor:pointer;">Выйти в Лобби</button>
+            <span id="turn-indicator">Ожидание игроков...</span>
+            <button id="btn-end-turn" disabled>Завершить ход ⏭</button>
         </div>
 
-        <div id="center-zone">
-            <div id="draw-pile" class="deck-slot">
-                <div>Колода</div>
-                <div class="count" id="deck-count">0</div>
-            </div>
+        <div id="game-board">
+            <div id="opponents-zone"></div>
             
-            <div id="action-zone" class="board-section">
-                <div class="section-title">Разыграть действие</div>
+            <div id="center-zone">
+                <div class="deck-slot" id="draw-pile">Колода<div class="count" id="deck-count">0</div></div>
+                <div class="deck-slot" id="discard-pile">Сброс<div class="count" id="discard-count">0</div></div>
+                <div class="board-section" id="action-zone">
+                    <div class="section-title">Разыграть действие (бросить сюда)</div>
+                </div>
             </div>
 
-            <div id="discard-pile" class="deck-slot">
-                <div>Сброс</div>
-                <div class="count" id="discard-count">0</div>
+            <div id="player-zone">
+                <div id="player-board">
+                    <div class="board-section" id="player-bank">
+                        <div class="section-title">Ваш Банк 💰</div>
+                        <div class="cards-area" id="bank-cards"></div>
+                    </div>
+                    <div class="board-section" id="player-properties">
+                        <div class="section-title">Ваша Недвижимость 🏠</div>
+                        <div class="cards-area" id="property-cards"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div id="player-zone">
-            <div id="player-board">
-                <div class="board-section" id="player-bank">
-                    <div class="section-title">Ваш Банк</div>
-                    <div class="cards-area" id="bank-cards"></div>
-                </div>
-                <div class="board-section" id="player-properties">
-                    <div class="section-title">Ваша Недвижимость</div>
-                    <div class="cards-area" id="property-cards"></div>
-                </div>
+        <div id="player-hand"></div>
+        <div id="room-chat" class="collapsed">
+            <div class="chat-header">Чат комнаты</div>
+            <div id="chat-messages"></div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Написать..." maxlength="100">
+                <button id="btn-send-chat">➤</button>
             </div>
-            
-            <div id="player-hand" class="hand-container"></div>
+        </div>
+
+        <div id="chat-toggle-bubble" class="visible" title="Открыть чат">
+            <div class="bubble-logo-placeholder">💬</div>
         </div>
     </div>
 
     <div id="target-modal" class="modal hidden">
         <div class="modal-content">
             <h3 id="modal-title">Выберите цель</h3>
-            <div id="modal-body">
-                </div>
-            <button id="btn-cancel-action" class="btn-cancel">Отмена (Вернуть карту)</button>
+            <div id="modal-body"></div>
+            <button id="btn-cancel-action" class="btn-cancel">Отмена</button>
         </div>
     </div>
 
