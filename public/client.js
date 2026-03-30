@@ -30,6 +30,7 @@ const btnEndTurn = document.getElementById('btn-end-turn');
 const handContainer = document.getElementById('player-hand');
 const drawPileEl = document.getElementById('draw-pile');
 const deckCountEl = document.getElementById('deck-count');
+let previousHand = []; // Память для анимации новых карт
 const discardCountEl = document.getElementById('discard-count');
 const bankCardsEl = document.getElementById('bank-cards');
 const propertyCardsEl = document.getElementById('property-cards');
@@ -48,6 +49,22 @@ let currentTurnPlayerId = null; let hasDrawnThisTurn = false;
 
 const colorNames = { 'brown': 'Коричневый', 'lightblue': 'Голубой', 'pink': 'Розовый', 'orange': 'Оранжевый', 'red': 'Красный', 'yellow': 'Желтый', 'green': 'Зеленый', 'darkblue': 'Темно-синий', 'railroad': 'Станции', 'utility': 'Предприятия', 'any': 'Разноцветный' };
 const bgColors = { 'brown': '#8B4513', 'lightblue': '#87CEEB', 'pink': '#FF69B4', 'orange': '#FF8C00', 'red': '#FF0000', 'yellow': '#FFD700', 'green': '#008000', 'darkblue': '#00008B', 'railroad': '#000000', 'utility': '#7f8c8d' };
+
+// =========================================
+// ЗВУКОВЫЕ ЭФФЕКТЫ
+// =========================================
+const sfxDraw = new Audio('/sounds/draw.mp3');
+const sfxPlay = new Audio('/sounds/play.mp3');
+const sfxAlert = new Audio('/sounds/alert.mp3');
+const sfxCash = new Audio('/sounds/cash.mp3');
+
+function playSound(audioObj) {
+    // Клонируем звук, чтобы они могли накладываться друг на друга (важно для раздачи)
+    const sound = audioObj.cloneNode();
+    sound.volume = 0.5; // Громкость 50%, чтобы не оглушить в наушниках
+    // Браузеры иногда блокируют звук до первого клика по странице, поэтому ловим ошибку:
+    sound.play().catch(err => console.log('Ожидание клика для разблокировки звука...'));
+}
 
 fetch('/cards_data.json?v=' + new Date().getTime()).then(res => res.json()).then(data => { allCardsData = data; });
 
@@ -261,6 +278,7 @@ document.addEventListener('pointerup', (e) => {
     };
 
     if (zone) {
+        playSound(sfxPlay); // <--- ВОТ СЮДА! Звук шлепка карты по столу
         const callback = (res) => { if (res && res.error) { alert('Ошибка: ' + res.error); returnCardToHand(); } };
         if (origin === 'table') {
             if (zone.id === 'player-properties') {
@@ -312,6 +330,7 @@ function processNetworkModalQueue() {
 function closeNetworkModal() { targetModal.classList.add('hidden'); isNetworkModalActive = false; processNetworkModalQueue(); }
 
 function buildActionModal(req) {
+    playSound(sfxAlert);
     targetModal.classList.remove('hidden'); modalBody.innerHTML = ''; btnCancelAction.style.display = 'none'; 
     let isPayment = false; let amountOwed = req.amount || 0; const fromPlayer = currentGameState.players[req.from]?.name || 'Соперник';
     let actionText = 'применил против вас действие!';
@@ -372,8 +391,11 @@ function showPaymentSelection(amountOwed, pendingId) {
     }
     modalBody.appendChild(paymentGrid);
     const btnConfirmPayment = document.createElement('button'); btnConfirmPayment.className = 'modal-btn'; btnConfirmPayment.style.background = '#27ae60'; btnConfirmPayment.textContent = 'Подтвердить оплату';
-    btnConfirmPayment.onclick = () => { socket.emit('respond_action', { room: currentRoom, playerId: myPlayerId, pendingId: pendingId, action: 'accept', paymentCards: Array.from(selectedCards) }); closeNetworkModal(); };
-    modalBody.appendChild(btnConfirmPayment); updateTitle();
+    btnConfirmPayment.onclick = () => { 
+            playSound(sfxCash); // <--- ВОТ СЮДА! Звон монет
+            socket.emit('respond_action', { room: currentRoom, playerId: myPlayerId, pendingId: pendingId, action: 'accept', paymentCards: Array.from(selectedCards) }); 
+            closeNetworkModal(); 
+        };    modalBody.appendChild(btnConfirmPayment); updateTitle();
 }
 
 // Модалки целей и цветов...
@@ -449,15 +471,43 @@ function renderStack(cardsArr, stackId, containerEl, isMini = false, assignedCol
 function renderGame() {
     if (!currentGameState || !myPlayerId) return; if (draggedCard) return;
     const myPlayerInfo = currentGameState.players[myPlayerId]; const isMyTurn = currentGameState.turnPlayerId === myPlayerId;
+    
+    // --- ЛОГИКА ПАМЯТИ ДЛЯ АНИМАЦИИ ---
+    const currentHand = myPlayerInfo.hand;
+    const newCardIds = currentHand.filter(id => !previousHand.includes(id));
+    previousHand = [...currentHand];
+    // ----------------------------------
+
     deckCountEl.textContent = currentGameState.deckCount; discardCountEl.textContent = currentGameState.discardCount; btnEndTurn.disabled = !isMyTurn;
     if (isMyTurn) turnIndicator.textContent = `⭐ ВАШ ХОД! (Сыграно: ${currentGameState.playsThisTurn}/3)`; else turnIndicator.textContent = `⏳ Ходит: ${currentGameState.players[currentGameState.turnPlayerId]?.name || '...'}`;
+    
     handContainer.innerHTML = '';
     myPlayerInfo.hand.forEach(cardId => {
         const cardEl = createCardElement(cardId);
-        if (cardEl) { cardEl.dataset.origin = 'hand'; cardEl.addEventListener('pointerdown', (e) => { if (e.button === 2) return; if (!isMyTurn) { alert('Дождитесь своего хода!'); return; } isDragging = false; startX = e.clientX; startY = e.clientY; draggedCard = cardEl; originalCardRect = cardEl.getBoundingClientRect(); shiftX = e.clientX - originalCardRect.left; shiftY = e.clientY - originalCardRect.top; }); handContainer.appendChild(cardEl); }
+        if (cardEl) { 
+            cardEl.dataset.origin = 'hand'; 
+            
+            // Если это только что взятая карта - делаем её прозрачной до конца полета клона
+            if (newCardIds.includes(cardId)) {
+                cardEl.style.opacity = '0';
+                cardEl.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+            }
+
+            cardEl.addEventListener('pointerdown', (e) => { 
+                if (e.button === 2) return; 
+                if (!isMyTurn) { alert('Дождитесь своего хода!'); return; } 
+                isDragging = false; startX = e.clientX; startY = e.clientY; draggedCard = cardEl; 
+                originalCardRect = cardEl.getBoundingClientRect(); shiftX = e.clientX - originalCardRect.left; shiftY = e.clientY - originalCardRect.top; 
+            }); 
+            handContainer.appendChild(cardEl); 
+        } else {
+            console.error(`🚨 ОШИБКА: Сервер выдал карту с ID [${cardId}], но её нет в cards_data.json!`);
+        }
     });
+
     bankCardsEl.innerHTML = ''; renderStack(myPlayerInfo.bank, `bank-my-${myPlayerId}`, bankCardsEl, false, null, isMyTurn);
     propertyCardsEl.innerHTML = ''; for (const color in myPlayerInfo.properties) { renderStack(myPlayerInfo.properties[color], `prop-my-${color}`, propertyCardsEl, false, color, isMyTurn); }
+    
     opponentsZone.innerHTML = '';
     for (const [pId, pInfo] of Object.entries(currentGameState.players)) {
         if (pId === myPlayerId) continue;
@@ -467,6 +517,11 @@ function renderGame() {
         for (const color in pInfo.properties) { renderStack(pInfo.properties[color], `prop-opp-${color}-${pId}`, document.getElementById(`opp-props-${pId}`), true, color); }
     }
     checkWinCondition();
+
+    // ЗАПУСК АНИМАЦИИ, ЕСЛИ ЕСТЬ НОВЫЕ КАРТЫ
+    if (newCardIds.length > 0) {
+        animateDrawnCards(newCardIds);
+    }
 }
 
 function checkWinCondition() {
@@ -562,3 +617,101 @@ sendChatMessage = function() {
     originalSendMessage();
     if (roomChatEl.classList.contains('collapsed')) expandChat();
 };
+
+// =========================================
+// АНИМАЦИЯ ПОЛЕТА КАРТ ПО ДУГЕ (КРИВАЯ БЕЗЬЕ)
+// =========================================
+function animateDrawnCards(newCardIds) {
+    const deckRect = drawPileEl.getBoundingClientRect();
+    if (deckRect.width === 0) return; // Предохранитель
+
+    newCardIds.forEach((cardId, index) => {
+        // Задержка вылета каждой следующей карты
+        setTimeout(() => {
+            const realCard = handContainer.querySelector(`.card[data-id="${cardId}"]`);
+            if (!realCard) return;
+
+            const targetRect = realCard.getBoundingClientRect();
+            
+            // Создаем клона карты
+            const flyingCard = createCardElement(cardId);
+            flyingCard.className = realCard.className;
+            flyingCard.style.position = 'fixed';
+            flyingCard.style.pointerEvents = 'none';
+            flyingCard.style.transition = 'none'; // Управляем движением через JS
+            
+            // Начальный размер (как у колоды)
+            flyingCard.style.width = deckRect.width + 'px';
+            flyingCard.style.height = deckRect.height + 'px';
+            flyingCard.style.zIndex = '90'; 
+            
+            document.body.appendChild(flyingCard);
+            
+            // --- МАТЕМАТИКА ПОЛЕТА ПО КРИВОЙ ---
+            
+            // ... создание клона flyingCard ...
+            document.body.appendChild(flyingCard);
+            
+            playSound(sfxDraw); // <--- ВОТ СЮДА! Звук вылета карты
+
+            // --- МАТЕМАТИКА ПОЛЕТА ПО КРИВОЙ ---
+            
+            // Точка А (Начало - Колода)
+            const xA = deckRect.left;
+            const yA = deckRect.top;
+            
+            // Точка B (Конец - Слот в руке)
+            const xB = targetRect.left;
+            const yB = targetRect.top;
+            
+            // Точка P (Контрольная - Создает дугу).
+            // Чтобы получить дугу, похожую на ветвь гиперболы, 
+            // мы выносим точку P сильно в сторону (влево) от прямой AB.
+            const distanceX = Math.abs(xB - xA);
+            const midY = (yA + yB) / 2;
+            
+            // Контрольная точка сильно левее колоды и посередине по вертикали
+            const xP = xA - (distanceX * 0.8); // Сила "выгиба" дуги влево
+            const yP = midY - 50; // Немного приподнимаем дугу
+            
+            // Данные для анимации
+            const startTime = performance.now();
+            const duration = 600; // Продолжительность полета (мс)
+            
+            function step(currentTime) {
+                let progress = (currentTime - startTime) / duration;
+                if (progress > 1) progress = 1;
+                
+                // 1. Формула кривой Безье 2-го порядка:
+                // Point(t) = (1-t)^2 * A + 2*(1-t)*t * P + t^2 * B
+                const invT = 1 - progress;
+                const currentX = (invT * invT * xA) + (2 * invT * progress * xP) + (progress * progress * xB);
+                const currentY = (invT * invT * yA) + (2 * invT * progress * yP) + (progress * progress * yB);
+                
+                // 2. Анимация трансформаций
+                // Плавное вращение (1 оборот)
+                const rotate = progress * 360;
+                // Изменение размера от колоды к руке
+                const scaleW = 1 + (targetRect.width / deckRect.width - 1) * progress;
+                const scaleH = 1 + (targetRect.height / deckRect.height - 1) * progress;
+                
+                flyingCard.style.transform = `translate(${currentX}px, ${currentY}px) rotate(${rotate}deg) scale(${scaleW}, ${scaleH})`;
+                
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    // Конец полета
+                    flyingCard.remove();
+                    realCard.style.opacity = '1'; // Проявляем настоящую карту
+                    
+                    // Поп-эффект приземления
+                    realCard.style.transform = 'scale(1.1)';
+                    setTimeout(() => realCard.style.transform = 'scale(1)', 100);
+                }
+            }
+            
+            requestAnimationFrame(step); // Запуск цикла анимации
+            
+        }, index * 200); // Каждая следующая карта вылетает на 0.2 сек позже
+    });
+}
