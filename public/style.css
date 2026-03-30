@@ -303,7 +303,7 @@ body {
 .modal {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(0, 0, 0, 0.8);
-    z-index: 10000;
+    z-index: 30000;
     display: flex; justify-content: center; align-items: center;
 }
 .modal.hidden { display: none; }
@@ -625,3 +625,67 @@ input[type="text"], input[type="password"] {
     z-index: 100;
     box-shadow: 0 5px 15px rgba(0,0,0,0.6); /* Красивая тень */
 }   
+
+/* =========================================
+   СТИЛИ ВКЛАДОК ЛОББИ И ДРУЗЕЙ
+   ========================================= */
+.tabs-header {
+    display: flex;
+    border-bottom: 2px solid rgba(255,255,255,0.1);
+    margin-bottom: 15px;
+}
+
+.tab-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #bdc3c7;
+    padding: 10px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 15px;
+    transition: all 0.2s;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px; /* Чтобы перекрывать границу родителя */
+}
+
+.tab-btn:hover { color: white; background: rgba(255,255,255,0.05); }
+.tab-btn.active { color: #f1c40f; border-bottom: 2px solid #f1c40f; }
+
+.tab-content { display: none; flex-direction: column; flex: 1; }
+.tab-content.active { display: flex; }
+
+/* Бейдж уведомлений (Красный кружок с числом) */
+#notif-badge {
+    background: #e74c3c;
+    color: white;
+    border-radius: 50%;
+    padding: 2px 7px;
+    font-size: 11px;
+    margin-left: 5px;
+}
+
+/* Элементы списка друзей и запросов */
+.friend-item, .notif-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255,255,255,0.1);
+    padding: 10px;
+    border-radius: 6px;
+    margin-bottom: 5px;
+}
+
+.friend-name { font-weight: bold; color: #ecf0f1; }
+
+.btn-small {
+    padding: 5px 10px;
+    font-size: 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    color: white;
+    font-weight: bold;
+}
+.btn-accept { background: #27ae60; } .btn-accept:hover { background: #2ecc71; }
+.btn-reject { background: #e74c3c; } .btn-reject:hover { background: #c0392b; }

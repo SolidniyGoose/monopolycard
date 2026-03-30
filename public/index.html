@@ -17,16 +17,20 @@
         </div>
 
         <div id="main-lobby" class="hidden">
-            <div style="display: flex; justify-content: flex-end; width: 800px; max-width: 95vw; margin: 0 auto 15px;">
-                <button id="btn-change-name" class="btn-primary" style="padding: 8px 15px; font-size: 14px; background: #8e44ad;">✏️ Изменить имя</button>
+            
+            <div style="position: absolute; top: 20px; right: 20px; display: flex; align-items: center; gap: 15px; z-index: 100;">
+                <button id="btn-rules" class="btn-primary" style="padding: 8px 15px; font-size: 14px; background: #e67e22; border: 1px solid rgba(255,255,255,0.2);">📖 Правила игры</button>
+                <div id="profile-trigger" style="display: flex; align-items: center; gap: 10px; cursor: pointer; background: rgba(0,0,0,0.5); padding: 5px 15px 5px 5px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.2); transition: background 0.2s;">
+                    <img id="my-avatar-mini" src="" style="width: 35px; height: 35px; border-radius: 50%; object-fit: cover; background: #34495e;">
+                    <span id="my-name-display" style="font-weight: bold; color: white;">Игрок</span>
+                </div>
             </div>
 
             <div class="lobby-grid">
                 
                 <div class="lobby-panel">
                     <h2>Игровые комнаты</h2>
-                    <div id="rooms-list" class="scrollable-list">
-                        </div>
+                    <div id="rooms-list" class="scrollable-list"></div>
                     
                     <div class="create-room-box">
                         <input type="text" id="new-room-name" placeholder="Название комнаты" maxlength="20">
@@ -35,10 +39,32 @@
                     </div>
                 </div>
 
-                <div class="lobby-panel">
-                    <h2>🏆 Зал славы (Топ побед)</h2>
-                    <div id="leaderboard-list" class="scrollable-list leaderboard">
+                <div class="lobby-panel" style="display: flex; flex-direction: column;">
+                    <div class="tabs-header">
+                        <button class="tab-btn active" data-target="tab-top">🏆 Топ</button>
+                        <button class="tab-btn" data-target="tab-friends">👥 Друзья</button>
+                        <button class="tab-btn" data-target="tab-notifs">🔔 Уведомления <span id="notif-badge" class="hidden">0</span></button>
+                    </div>
+                    
+                    <div id="tab-top" class="tab-content active">
+                        <div id="leaderboard-list" class="scrollable-list leaderboard"></div>
+                    </div>
+                    
+                    <div id="tab-friends" class="tab-content">
+                        <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                            <input type="text" id="friend-search-input" placeholder="Ник друга..." maxlength="15">
+                            <button id="btn-add-friend" class="btn-success" style="padding: 10px;">Добавить</button>
                         </div>
+                        <div id="friends-list" class="scrollable-list">
+                            <p style="color:#bdc3c7; text-align:center; margin-top:20px;">Ваш список друзей пуст.</p>
+                        </div>
+                    </div>
+
+                    <div id="tab-notifs" class="tab-content">
+                        <div id="notifs-list" class="scrollable-list">
+                            <p style="color:#bdc3c7; text-align:center; margin-top:20px;">Нет новых запросов.</p>
+                        </div>
+                    </div>
                 </div>
 
             </div>
@@ -99,6 +125,59 @@
             <h3 id="modal-title">Выберите цель</h3>
             <div id="modal-body"></div>
             <button id="btn-cancel-action" class="btn-cancel">Отмена</button>
+        </div>
+    </div>
+
+    <div id="profile-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 350px;">
+            <h3 style="color: #f1c40f; margin-bottom: 20px;">Настройки профиля</h3>
+            
+            <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 25px;">
+                <img id="profile-avatar-preview" src="" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 3px solid #f1c40f; margin-bottom: 10px; background: #34495e;">
+                <input type="file" id="avatar-upload-input" accept="image/jpeg, image/png, image/webp" style="display: none;">
+                <button id="btn-upload-avatar" class="btn-primary" style="background: #3498db; font-size: 12px; padding: 6px 12px;">📷 Изменить фото</button>
+            </div>
+
+            <div style="text-align: left; margin-bottom: 20px;">
+                <p style="margin-bottom: 5px; color: #bdc3c7; font-size: 13px;">Сменить никнейм:</p>
+                <div style="display: flex; gap: 5px;">
+                    <input type="text" id="new-name-input" placeholder="Новый ник..." maxlength="15" style="flex: 1;">
+                    <button id="btn-save-name" class="btn-success" style="padding: 10px;">Сохранить</button>
+                </div>
+            </div>
+
+            <button id="btn-close-profile" class="btn-cancel">Закрыть</button>
+        </div>
+    </div>
+
+    <div id="rules-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 600px; max-height: 85vh; display: flex; flex-direction: column;">
+            <h3 style="color: #f1c40f; font-size: 24px; border-bottom: 2px solid rgba(255,255,255,0.2); padding-bottom: 10px; margin-bottom: 0;">📖 Правила Monopoly Deal</h3>
+            <div style="overflow-y: auto; text-align: left; font-size: 15px; line-height: 1.5; padding: 15px 5px; color: #ecf0f1; flex: 1;">
+                <h4 style="color: #3498db; margin-top: 0;">🎯 Цель игры</h4>
+                <p style="margin-top: 5px;">Первым собрать <b>3 полных комплекта</b> недвижимости разных цветов.</p>
+
+                <h4 style="color: #3498db;">🃏 Ход игры</h4>
+                <ol style="padding-left: 20px; margin-top: 5px;">
+                    <li>В начале хода возьмите <b>2 карты</b> из колоды (если на руках 0 карт — возьмите 5).</li>
+                    <li>За ход можно сыграть <b>до 3-х карт</b> (можно меньше или вообще 0).</li>
+                    <li>В конце хода на руках должно остаться <b>не более 7 карт</b>. Лишние сбросьте в мусорку.</li>
+                </ol>
+
+                <h4 style="color: #3498db;">Куда можно играть карты:</h4>
+                <ul style="padding-left: 20px; margin-top: 5px;">
+                    <li><b>В Банк:</b> Карты Денег и Карты Действий.</li>
+                    <li><b>В Недвижимость:</b> Карты Собственности и Универсальные карты (Джокеры).</li>
+                    <li><b>В Центр (Действие):</b> Карты Действий для применения их эффекта (Рента, Аферист и т.д.).</li>
+                </ul>
+
+                <h4 style="color: #e74c3c;">💰 Оплата долгов (ВАЖНО!)</h4>
+                <p style="margin-top: 5px;">Если с вас требуют деньги, вы можете платить <b>ТОЛЬКО картами со стола</b>. Карты из руки использовать нельзя! <b>Сдачи в игре нет.</b> Если у вас на столе вообще нет карт, вы <b>ничего не платите</b>.</p>
+                
+                <h4 style="color: #2ecc71;">🛑 Защита</h4>
+                <p style="margin-top: 5px;">Карту <b>«Просто скажи НЕТ»</b> можно сыграть в любой момент, чтобы отменить любое действие против вас.</p>
+            </div>
+            <button id="btn-close-rules" class="btn-primary" style="margin-top: 10px; background: #27ae60;">Всё понятно, к игре!</button>
         </div>
     </div>
 

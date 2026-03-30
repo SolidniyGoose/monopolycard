@@ -5,7 +5,9 @@ let currentRoom = null;
 let currentGameState = null;
 let allCardsData = [];
 let expandedStacks = new Set();
-let winDeclared = false; // Чтобы не отправлять победу 10 раз
+let winDeclared = false;
+let myPlayerAvatar = null;
+const DEFAULT_AVATAR = 'data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Crect fill=%22%232c3e50%22 width=%22100%22 height=%22100%22/%3E%3Ctext fill=%22%23ecf0f1%22 font-size=%2250%22 x=%2250%22 y=%2265%22 text-anchor=%22middle%22%3E%26%23128100%3B%3C/text%3E%3C/svg%3E';
 
 // --- Элементы UI Лобби ---
 const lobbyScreen = document.getElementById('lobby-screen');
@@ -19,7 +21,21 @@ const leaderboardListEl = document.getElementById('leaderboard-list');
 const newRoomName = document.getElementById('new-room-name');
 const newRoomPass = document.getElementById('new-room-pass');
 const btnCreateRoom = document.getElementById('btn-create-room');
-const btnChangeName = document.getElementById('btn-change-name');
+
+// --- Элементы UI Профиля и Правил ---
+const btnRules = document.getElementById('btn-rules');
+const rulesModal = document.getElementById('rules-modal');
+const btnCloseRules = document.getElementById('btn-close-rules');
+const profileTrigger = document.getElementById('profile-trigger');
+const myAvatarMini = document.getElementById('my-avatar-mini');
+const myNameDisplay = document.getElementById('my-name-display');
+const profileModal = document.getElementById('profile-modal');
+const profileAvatarPreview = document.getElementById('profile-avatar-preview');
+const avatarUploadInput = document.getElementById('avatar-upload-input');
+const btnUploadAvatar = document.getElementById('btn-upload-avatar');
+const newNameInput = document.getElementById('new-name-input');
+const btnSaveName = document.getElementById('btn-save-name');
+const btnCloseProfile = document.getElementById('btn-close-profile');
 
 // --- Элементы UI Игры ---
 const statusEl = document.getElementById('status');
@@ -30,7 +46,7 @@ const btnEndTurn = document.getElementById('btn-end-turn');
 const handContainer = document.getElementById('player-hand');
 const drawPileEl = document.getElementById('draw-pile');
 const deckCountEl = document.getElementById('deck-count');
-let previousHand = []; // Память для анимации новых карт
+let previousHand = []; 
 const discardCountEl = document.getElementById('discard-count');
 const bankCardsEl = document.getElementById('bank-cards');
 const propertyCardsEl = document.getElementById('property-cards');
@@ -44,33 +60,33 @@ const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const btnSendChat = document.getElementById('btn-send-chat');
 
+const tabBtns = document.querySelectorAll('.tab-btn');
+const tabContents = document.querySelectorAll('.tab-content');
+const notifBadge = document.getElementById('notif-badge');
+const friendSearchInput = document.getElementById('friend-search-input');
+const btnAddFriend = document.getElementById('btn-add-friend');
+const friendsListEl = document.getElementById('friends-list');
+const notifsListEl = document.getElementById('notifs-list');
+
 let draggedCard = null; let shiftX = 0, shiftY = 0; let originalCardRect = null; let startX = 0, startY = 0; let isDragging = false; 
 let currentTurnPlayerId = null; let hasDrawnThisTurn = false;
 
 const colorNames = { 'brown': 'Коричневый', 'lightblue': 'Голубой', 'pink': 'Розовый', 'orange': 'Оранжевый', 'red': 'Красный', 'yellow': 'Желтый', 'green': 'Зеленый', 'darkblue': 'Темно-синий', 'railroad': 'Станции', 'utility': 'Предприятия', 'any': 'Разноцветный' };
 const bgColors = { 'brown': '#8B4513', 'lightblue': '#87CEEB', 'pink': '#FF69B4', 'orange': '#FF8C00', 'red': '#FF0000', 'yellow': '#FFD700', 'green': '#008000', 'darkblue': '#00008B', 'railroad': '#000000', 'utility': '#7f8c8d' };
 
-// =========================================
-// ЗВУКОВЫЕ ЭФФЕКТЫ
-// =========================================
 const sfxDraw = new Audio('/sounds/draw.mp3');
 const sfxPlay = new Audio('/sounds/play.mp3');
 const sfxAlert = new Audio('/sounds/alert.mp3');
 const sfxCash = new Audio('/sounds/cash.mp3');
 
 function playSound(audioObj) {
-    // Клонируем звук, чтобы они могли накладываться друг на друга (важно для раздачи)
     const sound = audioObj.cloneNode();
-    sound.volume = 0.5; // Громкость 50%, чтобы не оглушить в наушниках
-    // Браузеры иногда блокируют звук до первого клика по странице, поэтому ловим ошибку:
+    sound.volume = 0.5;
     sound.play().catch(err => console.log('Ожидание клика для разблокировки звука...'));
 }
 
 fetch('/cards_data.json?v=' + new Date().getTime()).then(res => res.json()).then(data => { allCardsData = data; });
 
-// =========================================
-// ЛОГИКА ЛОББИ И АВТОРИЗАЦИИ
-// =========================================
 socket.on('connect', () => { 
     socket.emit('req_lobby');
     const savedName = localStorage.getItem('monopoly_playerName');
@@ -78,25 +94,22 @@ socket.on('connect', () => {
     const savedPid = localStorage.getItem('monopoly_playerId');
 
     if (savedName) {
-        playerNameInput.value = savedName; // Просто подставляем имя в поле ввода
-        
-        // Если игрок был в комнате (за столом), возвращаем его туда
+        playerNameInput.value = savedName; 
         if (savedRoom && savedPid) {
             socket.emit('join_room', { room: savedRoom, name: savedName, playerId: savedPid }, (res) => {
                 if (res.ok) {
                     myPlayerId = res.playerId; myPlayerName = savedName; currentRoom = savedRoom;
+                    socket.emit('login', savedName, (loginRes) => {
+                        if (loginRes.ok) { myPlayerAvatar = loginRes.avatar || DEFAULT_AVATAR; updateMyProfileUI(); }
+                    });
                     showGameScreen();
                     if (currentGameState) renderGame();
                 } else {
-                    // Если комната закрылась, стираем старые ID
                     localStorage.removeItem('monopoly_currentRoom');
                     localStorage.removeItem('monopoly_playerId');
-                    // Мы УБРАЛИ авто-логин отсюда. Теперь вы останетесь на экране входа.
                 }
             });
         }
-        // Мы УБРАЛИ авто-логин и отсюда. 
-        // Теперь при входе на сайт вы всегда будете видеть кнопку "Войти в игру".
     }
 });
 
@@ -109,33 +122,121 @@ function doLogin(name) {
     socket.emit('login', name, (res) => {
         if (res.ok) {
             myPlayerName = name;
+            myPlayerAvatar = res.avatar || DEFAULT_AVATAR;
             localStorage.setItem('monopoly_playerName', name);
             loginBox.classList.add('hidden');
             mainLobby.classList.remove('hidden');
-            document.querySelector('.game-title').textContent = `Привет, ${name}!`;
+            updateMyProfileUI();
         }
     });
 }
 
-// Обработка кнопки смены имени
-if (btnChangeName) {
-    btnChangeName.addEventListener('click', () => {
-        const newName = prompt("Введите новое имя:", myPlayerName);
-        if (!newName || newName === myPlayerName) return;
+function updateMyProfileUI() {
+    if (myAvatarMini) myAvatarMini.src = myPlayerAvatar;
+    if (myNameDisplay) myNameDisplay.textContent = myPlayerName;
+    if (profileAvatarPreview) profileAvatarPreview.src = myPlayerAvatar;
+    const titleEl = document.querySelector('.game-title');
+    if (titleEl) titleEl.textContent = `Привет, ${myPlayerName}!`;
+}
 
-        socket.emit('change_name', { oldName: myPlayerName, newName: newName }, (res) => {
-            if (res.error) {
-                alert(res.error);
-            } else {
-                // Обновляем память браузера и интерфейс
-                myPlayerName = newName;
-                localStorage.setItem('monopoly_playerName', newName);
-                document.querySelector('.game-title').textContent = `Привет, ${newName}!`;
-                alert('Имя успешно изменено!');
-            }
+// --- Логика переключения вкладок ---
+tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        tabBtns.forEach(b => b.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.target).classList.add('active');
+    });
+});
+
+if (btnAddFriend) {
+    btnAddFriend.addEventListener('click', () => {
+        const friendName = friendSearchInput.value.trim();
+        if (!friendName) return;
+        socket.emit('send_friend_request', { from: myPlayerName, to: friendName }, (res) => {
+            if (res.error) alert(res.error);
+            else { alert(`Запрос игроку ${friendName} успешно отправлен!`); friendSearchInput.value = ''; }
         });
     });
 }
+
+socket.on('personal_update', (data) => {
+    if (data.incoming.length > 0) { notifBadge.textContent = data.incoming.length; notifBadge.classList.remove('hidden'); } 
+    else { notifBadge.classList.add('hidden'); }
+
+    friendsListEl.innerHTML = '';
+    if (data.friends.length === 0) {
+        friendsListEl.innerHTML = '<p style="color:#bdc3c7; text-align:center; margin-top:20px;">Ваш список друзей пуст.</p>';
+    } else {
+        data.friends.forEach(f => {
+            const item = document.createElement('div'); item.className = 'friend-item'; const ava = f.avatar || DEFAULT_AVATAR;
+            item.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><img src="${ava}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; border:1px solid rgba(255,255,255,0.2);"><span class="friend-name">${f.name}</span></div><button class="btn-small btn-reject" title="Удалить из друзей">Удалить</button>`;
+            item.querySelector('button').onclick = () => { if (confirm(`Точно удалить ${f.name} из друзей?`)) socket.emit('resolve_friend_request', { from: f.name, to: myPlayerName, action: 'remove' }); };
+            friendsListEl.appendChild(item);
+        });
+    }
+
+    notifsListEl.innerHTML = '';
+    if (data.incoming.length === 0 && data.outgoing.length === 0) {
+        notifsListEl.innerHTML = '<p style="color:#bdc3c7; text-align:center; margin-top:20px;">Нет новых запросов.</p>';
+    } else {
+        data.incoming.forEach(f => {
+            const item = document.createElement('div'); item.className = 'notif-item'; const ava = f.avatar || DEFAULT_AVATAR;
+            item.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><img src="${ava}" style="width:30px; height:30px; border-radius:50%; object-fit:cover;"><span class="friend-name">Запрос от: ${f.name}</span></div><div style="display:flex; gap:5px;"><button class="btn-small btn-accept">Принять</button><button class="btn-small btn-reject">Отклонить</button></div>`;
+            item.querySelector('.btn-accept').onclick = () => socket.emit('resolve_friend_request', { from: f.name, to: myPlayerName, action: 'accept' });
+            item.querySelector('.btn-reject').onclick = () => socket.emit('resolve_friend_request', { from: f.name, to: myPlayerName, action: 'reject' });
+            notifsListEl.appendChild(item);
+        });
+        data.outgoing.forEach(f => {
+            const item = document.createElement('div'); item.className = 'notif-item'; const ava = f.avatar || DEFAULT_AVATAR;
+            item.innerHTML = `<div style="display:flex; align-items:center; gap:10px; opacity:0.6;"><img src="${ava}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; filter: grayscale(100%);"><span class="friend-name" style="color:#7f8c8d;">⏳ Вы отправили запрос: ${f.name}</span></div>`;
+            notifsListEl.appendChild(item);
+        });
+    }
+});
+
+// --- ЛОГИКА ПРАВИЛ ИГРЫ ---
+if (btnRules) btnRules.addEventListener('click', () => rulesModal.classList.remove('hidden'));
+if (btnCloseRules) btnCloseRules.addEventListener('click', () => rulesModal.classList.add('hidden'));
+
+// --- ЛОГИКА ПРОФИЛЯ ---
+if (profileTrigger) {
+    profileTrigger.addEventListener('click', () => {
+        newNameInput.value = myPlayerName;
+        profileModal.classList.remove('hidden');
+    });
+}
+if (btnCloseProfile) btnCloseProfile.addEventListener('click', () => profileModal.classList.add('hidden'));
+
+if (btnSaveName) {
+    btnSaveName.addEventListener('click', () => {
+        const newName = newNameInput.value.trim();
+        if (!newName || newName === myPlayerName) return;
+        socket.emit('change_name', { oldName: myPlayerName, newName: newName }, (res) => {
+            if (res.error) alert(res.error);
+            else { myPlayerName = newName; localStorage.setItem('monopoly_playerName', newName); updateMyProfileUI(); alert('Имя успешно изменено!'); }
+        });
+    });
+}
+
+if (btnUploadAvatar) btnUploadAvatar.addEventListener('click', () => avatarUploadInput.click());
+if (avatarUploadInput) avatarUploadInput.addEventListener('change', (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas'); const MAX_SIZE = 150; 
+            let width = img.width; let height = img.height;
+            if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+            canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, width, height);
+            const base64Str = canvas.toDataURL('image/jpeg', 0.8); 
+            socket.emit('change_avatar', { name: myPlayerName, avatarBase64: base64Str }, (res) => {
+                if (res.error) alert(res.error); else { myPlayerAvatar = base64Str; updateMyProfileUI(); }
+            });
+        }; img.src = event.target.result;
+    }; reader.readAsDataURL(file);
+});
 
 // Создание комнаты
 btnCreateRoom.addEventListener('click', () => {
@@ -146,44 +247,24 @@ btnCreateRoom.addEventListener('click', () => {
     });
 });
 
-// Обновление списка комнат и таблицы лидеров от сервера
 socket.on('lobby_update', (data) => {
-    // 1. Рисуем комнаты
     roomsListEl.innerHTML = '';
-    if (data.rooms.length === 0) {
-        roomsListEl.innerHTML = '<p style="color:#bdc3c7; text-align:center;">Нет активных комнат. Создайте свою!</p>';
-    } else {
+    if (data.rooms.length === 0) { roomsListEl.innerHTML = '<p style="color:#bdc3c7; text-align:center;">Нет активных комнат. Создайте свою!</p>'; } 
+    else {
         data.rooms.forEach(room => {
-            const item = document.createElement('div');
-            item.className = 'room-item';
-            const passIcon = room.hasPassword ? '🔒' : '🔓';
-            item.innerHTML = `
-                <div class="room-info">
-                    <span class="room-name">${room.name} ${passIcon}</span>
-                    <span class="room-meta">Игроков: ${room.playersCount}</span>
-                </div>
-                <button class="btn-primary" style="padding: 6px 12px;">Войти</button>
-            `;
-            item.querySelector('button').onclick = () => {
-                let pass = '';
-                if (room.hasPassword) {
-                    pass = prompt(`Введите пароль для комнаты "${room.name}":`);
-                    if (pass === null) return;
-                }
-                joinGameRoom(room.id, pass);
-            };
+            const item = document.createElement('div'); item.className = 'room-item'; const passIcon = room.hasPassword ? '🔒' : '🔓';
+            item.innerHTML = `<div class="room-info"><span class="room-name">${room.name} ${passIcon}</span><span class="room-meta">Игроков: ${room.playersCount}</span></div><button class="btn-primary" style="padding: 6px 12px;">Войти</button>`;
+            item.querySelector('button').onclick = () => { let pass = ''; if (room.hasPassword) { pass = prompt(`Введите пароль для комнаты "${room.name}":`); if (pass === null) return; } joinGameRoom(room.id, pass); };
             roomsListEl.appendChild(item);
         });
     }
 
-    // 2. Рисуем таблицу лидеров
     leaderboardListEl.innerHTML = '';
     data.leaderboard.forEach((user, index) => {
-        const item = document.createElement('div');
-        item.className = 'leaderboard-item';
-        let medal = '';
+        const item = document.createElement('div'); item.className = 'leaderboard-item'; let medal = '';
         if (index === 0) medal = '🥇 '; else if (index === 1) medal = '🥈 '; else if (index === 2) medal = '🥉 ';
-        item.innerHTML = `<span>${medal}${user.name}</span> <span>${user.wins} 🏆</span>`;
+        const ava = user.avatar || DEFAULT_AVATAR;
+        item.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><span style="width:25px; text-align:center;">${medal}</span><img src="${ava}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; border:1px solid rgba(255,255,255,0.2);"><span>${user.name}</span></div><span>${user.wins} 🏆</span>`;
         leaderboardListEl.appendChild(item);
     });
 });
@@ -192,12 +273,11 @@ function joinGameRoom(roomId, password) {
     socket.emit('join_room', { room: roomId, password: password, name: myPlayerName }, (res) => {
         if (res.error) { alert(res.error); return; }
         if (res.ok) {
-            myPlayerId = res.playerId;
-            currentRoom = roomId;
+            myPlayerId = res.playerId; currentRoom = roomId;
             localStorage.setItem('monopoly_currentRoom', currentRoom);
             localStorage.setItem('monopoly_playerId', myPlayerId);
             showGameScreen();
-            if (currentGameState) renderGame(); // <--- ИСПРАВЛЕНИЕ 2
+            if (currentGameState) renderGame(); 
         }
     });
 }
@@ -240,7 +320,7 @@ btnEndTurn.addEventListener('click', () => {
 socket.on('game_state', (state) => {
     if (state.turnPlayerId !== currentTurnPlayerId) { currentTurnPlayerId = state.turnPlayerId; hasDrawnThisTurn = false; }
     currentGameState = state;
-    btnStart.disabled = state.deckCount < 106 && state.deckCount > 0; // Блокируем старт, если игра идет
+    btnStart.disabled = state.deckCount < 106 && state.deckCount > 0;
     renderGame();
 });
 
@@ -278,16 +358,14 @@ document.addEventListener('pointerup', (e) => {
     };
 
     if (zone) {
-        playSound(sfxPlay); // <--- ВОТ СЮДА! Звук шлепка карты по столу
+        playSound(sfxPlay);
         const callback = (res) => { if (res && res.error) { alert('Ошибка: ' + res.error); returnCardToHand(); } };
         if (origin === 'table') {
             if (zone.id === 'player-properties') {
                 const targetStack = elementBelow?.closest('.card-stack'); let targetColor = null;
                 if (targetStack && targetStack.id.startsWith('prop-my-')) targetColor = targetStack.id.replace('prop-my-', '');
                 let availableColors = cardData.colors.includes('any') ? Object.keys(bgColors) : cardData.colors;
-                if (targetColor && targetColor !== currentColor && availableColors.includes(targetColor)) {
-                    socket.emit('flip_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId, newColor: targetColor }, callback);
-                } else returnCardToHand();
+                if (targetColor && targetColor !== currentColor && availableColors.includes(targetColor)) { socket.emit('flip_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId, newColor: targetColor }, callback); } else returnCardToHand();
             } else returnCardToHand(); 
             return;
         }
@@ -310,9 +388,7 @@ document.addEventListener('pointerup', (e) => {
                 } else socket.emit('play_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId }, callback);
             } else if (zone.id === 'action-zone') {
                 const type = cardData?.action_type || cardData?.type;
-                if (['debt_collector', 'sly_deal', 'forced_deal', 'deal_breaker', 'rent', 'double_the_rent', 'house', 'hotel', 'birthday'].includes(type)) {
-                    openTargetModal(cardId, cardData, type, returnCardToHand);
-                } else socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: cardId, opts: {} }, callback);
+                if (['debt_collector', 'sly_deal', 'forced_deal', 'deal_breaker', 'rent', 'double_the_rent', 'house', 'hotel', 'birthday'].includes(type)) { openTargetModal(cardId, cardData, type, returnCardToHand); } else socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: cardId, opts: {} }, callback);
             }
         }
     } else returnCardToHand();
@@ -322,11 +398,7 @@ document.addEventListener('pointerup', (e) => {
 let networkModalQueue = []; let isNetworkModalActive = false;
 socket.on('action_request', (req) => { networkModalQueue.push({ type: 'action', data: req }); processNetworkModalQueue(); });
 socket.on('counter_request', (req) => { networkModalQueue.push({ type: 'counter', data: req }); processNetworkModalQueue(); });
-function processNetworkModalQueue() {
-    if (isNetworkModalActive || networkModalQueue.length === 0) return;
-    isNetworkModalActive = true; const item = networkModalQueue.shift();
-    if (item.type === 'action') buildActionModal(item.data); else if (item.type === 'counter') buildCounterModal(item.data);
-}
+function processNetworkModalQueue() { if (isNetworkModalActive || networkModalQueue.length === 0) return; isNetworkModalActive = true; const item = networkModalQueue.shift(); if (item.type === 'action') buildActionModal(item.data); else if (item.type === 'counter') buildCounterModal(item.data); }
 function closeNetworkModal() { targetModal.classList.add('hidden'); isNetworkModalActive = false; processNetworkModalQueue(); }
 
 function buildActionModal(req) {
@@ -366,7 +438,6 @@ function buildCounterModal(req) {
 
 socket.on('action_resolved', (res) => { if (res.executed === false) alert('Действие было полностью отменено картой "Просто скажи Нет"!'); });
 
-// Оплата долга (сокращенно)
 function showPaymentSelection(amountOwed, pendingId) {
     modalBody.innerHTML = ''; const myPlayerInfo = currentGameState.players[myPlayerId];
     let validPaymentCards = []; let totalAssetsValue = 0;
@@ -392,13 +463,12 @@ function showPaymentSelection(amountOwed, pendingId) {
     modalBody.appendChild(paymentGrid);
     const btnConfirmPayment = document.createElement('button'); btnConfirmPayment.className = 'modal-btn'; btnConfirmPayment.style.background = '#27ae60'; btnConfirmPayment.textContent = 'Подтвердить оплату';
     btnConfirmPayment.onclick = () => { 
-            playSound(sfxCash); // <--- ВОТ СЮДА! Звон монет
-            socket.emit('respond_action', { room: currentRoom, playerId: myPlayerId, pendingId: pendingId, action: 'accept', paymentCards: Array.from(selectedCards) }); 
-            closeNetworkModal(); 
-        };    modalBody.appendChild(btnConfirmPayment); updateTitle();
+        playSound(sfxCash);
+        socket.emit('respond_action', { room: currentRoom, playerId: myPlayerId, pendingId: pendingId, action: 'accept', paymentCards: Array.from(selectedCards) }); 
+        closeNetworkModal(); 
+    }; modalBody.appendChild(btnConfirmPayment); updateTitle();
 }
 
-// Модалки целей и цветов...
 function openWildColorModal(cardId, cardData, cancelCallback, isFlipping = false, currentColor = null) {
     targetModal.classList.remove('hidden'); modalBody.innerHTML = ''; modalTitle.textContent = isFlipping ? 'В какой цвет перевернуть?' : 'Как какой цвет выложить?'; btnCancelAction.style.display = 'block';
     let availableColors = cardData.colors; if (availableColors.includes('any')) availableColors = Object.keys(bgColors); if (isFlipping && currentColor) availableColors = availableColors.filter(c => c !== currentColor);
@@ -472,11 +542,9 @@ function renderGame() {
     if (!currentGameState || !myPlayerId) return; if (draggedCard) return;
     const myPlayerInfo = currentGameState.players[myPlayerId]; const isMyTurn = currentGameState.turnPlayerId === myPlayerId;
     
-    // --- ЛОГИКА ПАМЯТИ ДЛЯ АНИМАЦИИ ---
     const currentHand = myPlayerInfo.hand;
     const newCardIds = currentHand.filter(id => !previousHand.includes(id));
     previousHand = [...currentHand];
-    // ----------------------------------
 
     deckCountEl.textContent = currentGameState.deckCount; discardCountEl.textContent = currentGameState.discardCount; btnEndTurn.disabled = !isMyTurn;
     if (isMyTurn) turnIndicator.textContent = `⭐ ВАШ ХОД! (Сыграно: ${currentGameState.playsThisTurn}/3)`; else turnIndicator.textContent = `⏳ Ходит: ${currentGameState.players[currentGameState.turnPlayerId]?.name || '...'}`;
@@ -486,13 +554,7 @@ function renderGame() {
         const cardEl = createCardElement(cardId);
         if (cardEl) { 
             cardEl.dataset.origin = 'hand'; 
-            
-            // Если это только что взятая карта - делаем её прозрачной до конца полета клона
-            if (newCardIds.includes(cardId)) {
-                cardEl.style.opacity = '0';
-                cardEl.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
-            }
-
+            if (newCardIds.includes(cardId)) { cardEl.style.opacity = '0'; cardEl.style.transition = 'opacity 0.2s ease, transform 0.2s ease'; }
             cardEl.addEventListener('pointerdown', (e) => { 
                 if (e.button === 2) return; 
                 if (!isMyTurn) { alert('Дождитесь своего хода!'); return; } 
@@ -500,8 +562,6 @@ function renderGame() {
                 originalCardRect = cardEl.getBoundingClientRect(); shiftX = e.clientX - originalCardRect.left; shiftY = e.clientY - originalCardRect.top; 
             }); 
             handContainer.appendChild(cardEl); 
-        } else {
-            console.error(`🚨 ОШИБКА: Сервер выдал карту с ID [${cardId}], но её нет в cards_data.json!`);
         }
     });
 
@@ -518,10 +578,7 @@ function renderGame() {
     }
     checkWinCondition();
 
-    // ЗАПУСК АНИМАЦИИ, ЕСЛИ ЕСТЬ НОВЫЕ КАРТЫ
-    if (newCardIds.length > 0) {
-        animateDrawnCards(newCardIds);
-    }
+    if (newCardIds.length > 0) animateDrawnCards(newCardIds);
 }
 
 function checkWinCondition() {
@@ -533,11 +590,7 @@ function checkWinCondition() {
             if (propCount >= setSize && propCount > 0) fullSetsCount++;
         }
         if (fullSetsCount >= 3) {
-            // ИСПРАВЛЕНИЕ: Записываем победу в БД только один раз
-            if (pId === myPlayerId && !winDeclared) {
-                socket.emit('player_won', { room: currentRoom, playerName: myPlayerName });
-                winDeclared = true;
-            }
+            if (pId === myPlayerId && !winDeclared) { socket.emit('player_won', { room: currentRoom, playerName: myPlayerName }); winDeclared = true; }
             targetModal.classList.remove('hidden'); btnCancelAction.style.display = 'none'; 
             if (pId === myPlayerId) { modalTitle.textContent = '🏆 ВЫ ПОБЕДИЛИ! 🏆'; modalTitle.style.color = '#f1c40f'; modalTitle.style.fontSize = '28px'; } 
             else { modalTitle.textContent = `😭 ПОБЕДИЛ: ${pInfo.name.toUpperCase()} 😭`; modalTitle.style.color = '#e74c3c'; }
@@ -547,171 +600,86 @@ function checkWinCondition() {
 }
 
 // =========================================
-// ЛОГИКА ЧАТА
+// ЧАТ
 // =========================================
 function sendChatMessage() {
     const text = chatInput.value.trim();
-    if (text && currentRoom && myPlayerId) {
-        socket.emit('send_chat_message', { room: currentRoom, playerId: myPlayerId, message: text });
-        chatInput.value = ''; // Очищаем поле ввода
-    }
+    if (text && currentRoom && myPlayerId) { socket.emit('send_chat_message', { room: currentRoom, playerId: myPlayerId, message: text }); chatInput.value = ''; }
 }
-
 btnSendChat.addEventListener('click', sendChatMessage);
+chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendChatMessage(); });
 
-chatInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendChatMessage(); // Отправка по Enter
-});
-
-// Получаем сообщение от сервера и рисуем его
 socket.on('chat_message', ({ sender, text, isSystem }) => {
-    const msgEl = document.createElement('div');
-    msgEl.className = 'chat-msg';
-    
-    if (isSystem) {
-        msgEl.style.color = '#bdc3c7';
-        msgEl.style.fontStyle = 'italic';
-        msgEl.innerHTML = text;
-    } else {
-        msgEl.innerHTML = `<b>${sender}:</b> ${text}`;
-    }
-    
-    chatMessages.appendChild(msgEl);
-    // Автоматически прокручиваем чат вниз
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    const msgEl = document.createElement('div'); msgEl.className = 'chat-msg';
+    if (isSystem) { msgEl.style.color = '#bdc3c7'; msgEl.style.fontStyle = 'italic'; msgEl.innerHTML = text; } 
+    else { msgEl.innerHTML = `<b>${sender}:</b> ${text}`; }
+    chatMessages.appendChild(msgEl); chatMessages.scrollTop = chatMessages.scrollHeight;
 });
-// Переменные для сворачивания
+
 const chatToggleBubble = document.getElementById('chat-toggle-bubble');
-const chatHeader = document.querySelector('.chat-header'); // Заголовок, по которому будем кликать для сворачивания
-const roomChatEl = document.getElementById('room-chat'); // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+const chatHeader = document.querySelector('.chat-header');
+const roomChatEl = document.getElementById('room-chat'); 
 
-// ФУНКЦИЯ: Свернуть чат
-function collapseChat() {
-    roomChatEl.classList.add('collapsed');
-    chatToggleBubble.classList.add('visible'); // Показываем кружок
-}
+function collapseChat() { roomChatEl.classList.add('collapsed'); chatToggleBubble.classList.add('visible'); }
+function expandChat() { roomChatEl.classList.remove('collapsed'); chatToggleBubble.classList.remove('visible'); }
 
-// ФУНКЦИЯ: Развернуть чат
-function expandChat() {
-    roomChatEl.classList.remove('collapsed');
-    chatToggleBubble.classList.remove('visible'); // Скрываем кружок
-}
+chatToggleBubble.addEventListener('click', (e) => { e.stopPropagation(); expandChat(); });
+chatHeader.addEventListener('click', (e) => { e.stopPropagation(); collapseChat(); });
 
-// НАВЕШИВАЕМ ОБРАБОТЧИКИ СОБЫТИЙ
-
-// 1. Клик по кружку -> Развернуть
-chatToggleBubble.addEventListener('click', (e) => {
-    e.stopPropagation(); // Не даем клику уйти на карты
-    expandChat();
-});
-
-// 2. Клик по заголовку чата -> Свернуть
-chatHeader.addEventListener('click', (e) => {
-    e.stopPropagation(); // Не даем клику уйти на карты
-    collapseChat();
-});
-
-// Дополнительно: При отправке сообщения разворачиваем чат (если был свернут программно)
 const originalSendMessage = sendChatMessage;
-sendChatMessage = function() {
-    originalSendMessage();
-    if (roomChatEl.classList.contains('collapsed')) expandChat();
-};
+sendChatMessage = function() { originalSendMessage(); if (roomChatEl.classList.contains('collapsed')) expandChat(); };
 
 // =========================================
-// АНИМАЦИЯ ПОЛЕТА КАРТ ПО ДУГЕ (КРИВАЯ БЕЗЬЕ)
+// АНИМАЦИЯ
 // =========================================
 function animateDrawnCards(newCardIds) {
     const deckRect = drawPileEl.getBoundingClientRect();
-    if (deckRect.width === 0) return; // Предохранитель
+    if (deckRect.width === 0) return; 
 
     newCardIds.forEach((cardId, index) => {
-        // Задержка вылета каждой следующей карты
         setTimeout(() => {
             const realCard = handContainer.querySelector(`.card[data-id="${cardId}"]`);
             if (!realCard) return;
-
             const targetRect = realCard.getBoundingClientRect();
             
-            // Создаем клона карты
             const flyingCard = createCardElement(cardId);
             flyingCard.className = realCard.className;
             flyingCard.style.position = 'fixed';
             flyingCard.style.pointerEvents = 'none';
-            flyingCard.style.transition = 'none'; // Управляем движением через JS
+            flyingCard.style.transition = 'none'; 
             
-            // Начальный размер (как у колоды)
             flyingCard.style.width = deckRect.width + 'px';
             flyingCard.style.height = deckRect.height + 'px';
             flyingCard.style.zIndex = '90'; 
             
             document.body.appendChild(flyingCard);
+            playSound(sfxDraw);
             
-            // --- МАТЕМАТИКА ПОЛЕТА ПО КРИВОЙ ---
+            const xA = deckRect.left; const yA = deckRect.top;
+            const xB = targetRect.left; const yB = targetRect.top;
+            const distanceX = Math.abs(xB - xA); const midY = (yA + yB) / 2;
+            const xP = xA - (distanceX * 0.8); const yP = midY - 50; 
             
-            // ... создание клона flyingCard ...
-            document.body.appendChild(flyingCard);
-            
-            playSound(sfxDraw); // <--- ВОТ СЮДА! Звук вылета карты
-
-            // --- МАТЕМАТИКА ПОЛЕТА ПО КРИВОЙ ---
-            
-            // Точка А (Начало - Колода)
-            const xA = deckRect.left;
-            const yA = deckRect.top;
-            
-            // Точка B (Конец - Слот в руке)
-            const xB = targetRect.left;
-            const yB = targetRect.top;
-            
-            // Точка P (Контрольная - Создает дугу).
-            // Чтобы получить дугу, похожую на ветвь гиперболы, 
-            // мы выносим точку P сильно в сторону (влево) от прямой AB.
-            const distanceX = Math.abs(xB - xA);
-            const midY = (yA + yB) / 2;
-            
-            // Контрольная точка сильно левее колоды и посередине по вертикали
-            const xP = xA - (distanceX * 0.8); // Сила "выгиба" дуги влево
-            const yP = midY - 50; // Немного приподнимаем дугу
-            
-            // Данные для анимации
-            const startTime = performance.now();
-            const duration = 600; // Продолжительность полета (мс)
+            const startTime = performance.now(); const duration = 600; 
             
             function step(currentTime) {
                 let progress = (currentTime - startTime) / duration;
                 if (progress > 1) progress = 1;
                 
-                // 1. Формула кривой Безье 2-го порядка:
-                // Point(t) = (1-t)^2 * A + 2*(1-t)*t * P + t^2 * B
                 const invT = 1 - progress;
                 const currentX = (invT * invT * xA) + (2 * invT * progress * xP) + (progress * progress * xB);
                 const currentY = (invT * invT * yA) + (2 * invT * progress * yP) + (progress * progress * yB);
                 
-                // 2. Анимация трансформаций
-                // Плавное вращение (1 оборот)
                 const rotate = progress * 360;
-                // Изменение размера от колоды к руке
                 const scaleW = 1 + (targetRect.width / deckRect.width - 1) * progress;
                 const scaleH = 1 + (targetRect.height / deckRect.height - 1) * progress;
                 
                 flyingCard.style.transform = `translate(${currentX}px, ${currentY}px) rotate(${rotate}deg) scale(${scaleW}, ${scaleH})`;
                 
-                if (progress < 1) {
-                    requestAnimationFrame(step);
-                } else {
-                    // Конец полета
-                    flyingCard.remove();
-                    realCard.style.opacity = '1'; // Проявляем настоящую карту
-                    
-                    // Поп-эффект приземления
-                    realCard.style.transform = 'scale(1.1)';
-                    setTimeout(() => realCard.style.transform = 'scale(1)', 100);
-                }
+                if (progress < 1) { requestAnimationFrame(step); } 
+                else { flyingCard.remove(); realCard.style.opacity = '1'; realCard.style.transform = 'scale(1.1)'; setTimeout(() => realCard.style.transform = 'scale(1)', 100); }
             }
-            
-            requestAnimationFrame(step); // Запуск цикла анимации
-            
-        }, index * 200); // Каждая следующая карта вылетает на 0.2 сек позже
+            requestAnimationFrame(step); 
+        }, index * 200); 
     });
 }

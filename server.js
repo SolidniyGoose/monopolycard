@@ -23,18 +23,56 @@ try {
 // === ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ===
 const db = new sqlite3.Database(path.join(__dirnameServer, 'database.sqlite'));
 db.serialize(() => {
-  // Создаем таблицу пользователей, если её нет
-  db.run("CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, wins INTEGER DEFAULT 0)");
+  db.run("CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, wins INTEGER DEFAULT 0, avatar TEXT)");
+  // Аккуратно добавляем колонку avatar в уже существующую базу (ошибки игнорируем)
+  db.run("ALTER TABLE users ADD COLUMN avatar TEXT", (err) => {}); 
+  db.run("CREATE TABLE IF NOT EXISTS friends (user1 TEXT, user2 TEXT, status TEXT, PRIMARY KEY(user1, user2))");
 });
+
+const activeUsers = new Map(); 
+
+
+// Функция для отправки личных данных (теперь с аватарками через JOIN)
+function sendPersonalData(name) {
+    const socketId = activeUsers.get(name);
+    if (!socketId) return;
+
+    db.all(`
+        SELECT f.user1, f.user2, f.status, u1.avatar as avatar1, u2.avatar as avatar2 
+        FROM friends f 
+        LEFT JOIN users u1 ON f.user1 = u1.name 
+        LEFT JOIN users u2 ON f.user2 = u2.name 
+        WHERE f.user1 = ? OR f.user2 = ?
+    `, [name, name], (err, rows) => {
+        if (err) return;
+        const friends = []; const incoming = []; const outgoing = [];
+
+        rows.forEach(r => {
+            const isUser1 = r.user1 === name;
+            const friendName = isUser1 ? r.user2 : r.user1;
+            const friendAvatar = isUser1 ? r.avatar2 : r.avatar1;
+            const data = { name: friendName, avatar: friendAvatar };
+            
+            if (r.status === 'accepted') friends.push(data);
+            else if (r.status === 'pending') {
+                if (isUser1) outgoing.push(data);
+                else incoming.push(data);
+            }
+        });
+        io.to(socketId).emit('personal_update', { friends, incoming, outgoing });
+    });
+}
 
 app.get('/cards_data.json', (req, res) => { res.json(cardsData); });
 app.use(express.static(path.join(__dirnameServer, 'public')));
 
-const games = new Map(); // Хранилище комнат
+const games = new Map(); 
 
+// --- ВЕРНУВШИЕСЯ ФУНКЦИИ-ПОМОЩНИКИ ---
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
 function generateId(prefix='id'){ return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,6); }
 function cardById(id){ return cardsData.find(c=>c.id === id); }
+
 
 // --- ФУНКЦИИ ЛОББИ И БД ---
 function broadcastLobby() {
@@ -42,7 +80,8 @@ function broadcastLobby() {
   for(const [id, game] of games.entries()) {
      activeRooms.push({ id, name: game.name, hasPassword: !!game.password, playersCount: Object.keys(game.players).length });
   }
-  db.all("SELECT name, wins FROM users ORDER BY wins DESC LIMIT 10", (err, leaderboard) => {
+  // Теперь берем и аватарку для Топ-10
+  db.all("SELECT name, wins, avatar FROM users ORDER BY wins DESC LIMIT 10", (err, leaderboard) => {
      io.emit('lobby_update', { rooms: activeRooms, leaderboard: leaderboard || [] });
   });
 }
@@ -126,37 +165,74 @@ io.on('connection', socket => {
   socket.on('req_lobby', () => { broadcastLobby(); });
 
   // Регистрация / Логин
+  // Регистрация / Логин
   socket.on('login', (name, cb) => {
     db.run("INSERT OR IGNORE INTO users (name) VALUES (?)", [name], () => {
-       cb({ ok: true, name });
+       db.get("SELECT avatar FROM users WHERE name = ?", [name], (err, row) => {
+           activeUsers.set(name, socket.id); 
+           cb({ ok: true, name, avatar: row ? row.avatar : null });
+           sendPersonalData(name); 
+       });
     });
   });
+
+  // --- СИСТЕМА ДРУЗЕЙ ---
+  socket.on('send_friend_request', ({ from, to }, cb) => {
+      if (from === to) return cb({ error: 'Нельзя добавить самого себя!' });
+      db.get("SELECT name FROM users WHERE name = ?", [to], (err, row) => {
+          if (!row) return cb({ error: 'Игрок с таким ником не найден!' });
+          
+          db.get("SELECT status FROM friends WHERE (user1=? AND user2=?) OR (user1=? AND user2=?)", [from, to, to, from], (err, existing) => {
+              if (existing) return cb({ error: 'Запрос уже отправлен или вы уже друзья!' });
+              
+              db.run("INSERT INTO friends (user1, user2, status) VALUES (?, ?, 'pending')", [from, to], () => {
+                  sendPersonalData(from);
+                  if (activeUsers.has(to)) sendPersonalData(to); // Если друг онлайн, уведомляем его мгновенно
+                  cb({ ok: true });
+              });
+          });
+      });
+  });
+
+  socket.on('resolve_friend_request', ({ from, to, action }) => {
+      // to - это тот, кому пришел запрос (текущий игрок), from - кто отправил
+      if (action === 'accept') {
+          db.run("UPDATE friends SET status = 'accepted' WHERE user1 = ? AND user2 = ?", [from, to], () => {
+              sendPersonalData(from); sendPersonalData(to);
+          });
+      } else if (action === 'reject' || action === 'remove') {
+          db.run("DELETE FROM friends WHERE (user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)", [from, to, to, from], () => {
+              sendPersonalData(from); sendPersonalData(to);
+          });
+      }
+  });
+
+  // Обработка отключения из лобби (чтобы не слать запросы в пустоту)
+    // ... остальной код disconnect для игр оставляем без изменений ...
   // Смена имени
   socket.on('change_name', ({ oldName, newName }, cb) => {
     if (!newName || newName.trim() === '') return cb({ error: 'Имя не может быть пустым' });
-    
-    // Проверяем, не занято ли новое имя
     db.get("SELECT name FROM users WHERE name = ?", [newName], (err, row) => {
         if (row) return cb({ error: 'Это имя уже занято кем-то другим!' });
-        
-        // Меняем имя в базе данных (сохраняя победы)
         db.run("UPDATE users SET name = ? WHERE name = ?", [newName, oldName], (err) => {
             if (err) return cb({ error: 'Ошибка базы данных' });
-            
-            // Если игрок в этот момент находился в комнате, обновляем имя и там
             for (const [roomId, game] of games.entries()) {
                 for (const pid of Object.keys(game.players)) {
-                    if (game.players[pid].name === oldName) {
-                        game.players[pid].name = newName;
-                        sendGameState(roomId);
-                    }
+                    if (game.players[pid].name === oldName) { game.players[pid].name = newName; sendGameState(roomId); }
                 }
             }
-            
-            broadcastLobby(); // Мгновенно обновляем Таблицу Лидеров у всех
-            cb({ ok: true });
+            broadcastLobby(); cb({ ok: true });
         });
     });
+  });
+
+  socket.on('change_avatar', ({ name, avatarBase64 }, cb) => {
+      db.run("UPDATE users SET avatar = ? WHERE name = ?", [avatarBase64, name], (err) => {
+          if (err) return cb({ error: 'Ошибка сохранения картинки' });
+          broadcastLobby();
+          sendPersonalData(name);
+          cb({ ok: true });
+      });
   });
 
   // Создание комнаты
@@ -374,6 +450,12 @@ io.on('connection', socket => {
   });
   
   socket.on('disconnect', ()=>{
+    // 1. Очистка для системы друзей (убираем из онлайна)
+    for (let [name, sId] of activeUsers.entries()) {
+        if (sId === socket.id) activeUsers.delete(name);
+    }
+
+    // 2. Очистка для игрового стола (помечаем как отключенного)
     for(const [room, game] of games.entries()){
       for(const pid of Object.keys(game.players)){
         if(game.players[pid].socketId === socket.id){
