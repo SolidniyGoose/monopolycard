@@ -572,5 +572,5 @@ function attemptResolvePendingAction(game, room){
   game.pendingAction = null; sendGameState(room);
 }
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5001;
 server.listen(PORT, '0.0.0.0', ()=> console.log(`[server] listening on 0.0.0.0:${PORT}`));
