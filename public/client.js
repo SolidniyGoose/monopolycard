@@ -121,7 +121,13 @@ function showNotification(message, type = 'error') {
     }, 4000);
 }
 
-fetch('/cards_data.json?v=' + new Date().getTime()).then(res => res.json()).then(data => { allCardsData = data; });
+fetch('/cards_data.json?v=' + new Date().getTime())
+    .then(res => res.json())
+    .then(data => { 
+        allCardsData = data; 
+        // 🔥 Как только база докачалась - заставляем игру стереть ошибки и нарисовать нормальные карты
+        if (currentGameState) renderGame(); 
+    });
 
 socket.on('connect', () => { 
     socket.emit('req_lobby');
@@ -443,6 +449,12 @@ document.addEventListener('pointerup', (e) => {
             renderGame(); 
         }, 300);
     };
+
+    // 🔥 ЗАЩИТА ОТ КРАША ИГРЫ: Если данных карты нет, просто возвращаем её в руку и прерываем код
+    if (!cardData) {
+        showNotification('Данные карты еще загружаются, подождите секунду!', 'info');
+        return returnCardToHand();
+    }
 
     if (zone) {
         playSound(sfxPlay);
