@@ -1,4 +1,5 @@
-const socket = io();
+// Запрещаем сокетам подключаться до окончания загрузки базы
+const socket = io({ autoConnect: false });
 let myPlayerId = null;
 let myPlayerName = null;
 let currentRoom = null;
@@ -121,12 +122,27 @@ function showNotification(message, type = 'error') {
     }, 4000);
 }
 
+const loadingScreen = document.getElementById('loading-screen');
+const loadingText = document.getElementById('loading-text');
+
+// Начинаем загрузку базы данных
 fetch('/cards_data.json?v=' + new Date().getTime())
     .then(res => res.json())
     .then(data => { 
         allCardsData = data; 
-        // 🔥 Как только база докачалась - заставляем игру стереть ошибки и нарисовать нормальные карты
-        if (currentGameState) renderGame(); 
+        
+        // Плавно растворяем экран загрузки
+        loadingScreen.classList.add('hidden');
+        setTimeout(() => loadingScreen.style.display = 'none', 500); // Полностью убираем из памяти
+        
+        // 🔥 ТОЛЬКО ТЕПЕРЬ ПОДКЛЮЧАЕМСЯ К СЕРВЕРУ! 🔥
+        socket.connect(); 
+    })
+    .catch(err => {
+        console.error("Ошибка загрузки базы:", err);
+        loadingText.textContent = 'Ошибка сети! Перезагрузите страницу.';
+        loadingText.style.color = '#e74c3c';
+        document.querySelector('.loader-spinner').style.display = 'none';
     });
 
 socket.on('connect', () => { 
