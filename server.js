@@ -102,6 +102,9 @@ function getOrCreateGame(room, roomName = 'Комната', password = ''){
 
 function sendGameState(room){
   const game = games.get(room);
+
+  console.log(`[Sync ${room}] ` + Object.values(game.players).map(p => `${p.name}: ${p.hand.length}шт`).join(' | '));
+  
   if(!game) return;
   for(const pid of Object.keys(game.players)){
     const p = game.players[pid];
@@ -397,13 +400,25 @@ io.on('connection', socket => {
     sendGameState(room); if(cb) cb({ ok:true });
   });
 
-  socket.on('play_property', ({ room, playerId, cardId, chosenColor }, cb)=>{
+  socket.on('play_property', ({ room, playerId, cardId, chosenColor }, cb) => {
     const game = games.get(room); if(!game) return;
     if(game.turnOrder[game.turnIndex] !== playerId || game.playsThisTurn >= 3) return;
+
+    const meta = cardById(cardId);
+    const color = chosenColor || (meta.colors ? meta.colors[0] : null);
+    if(!color) return;
+
     const ok = removeFromHand(game, playerId, cardId); if(!ok) return;
-    const meta = cardById(cardId); let assignColor = chosenColor || (meta.colors ? meta.colors[0] : 'unassigned');
-    givePropertyTo(game, playerId, cardId, assignColor); game.playsThisTurn++;
-    sendGameState(room); if(cb) cb({ ok:true });
+
+    // 🔥 ИСПОЛЬЗУЕМ НОВУЮ ЛОГИКУ ПОИСКА СТОПКИ 🔥
+    const targetKey = getPropertyKey(game, playerId, color);
+    
+    game.players[playerId].properties[targetKey] = game.players[playerId].properties[targetKey] || [];
+    game.players[playerId].properties[targetKey].push(cardId);
+    
+    game.playsThisTurn++;
+    sendGameState(room);
+    if(cb) cb({ ok:true });
   });
 
   socket.on('play_action', ({ room, playerId, cardId, opts }, cb)=>{
@@ -570,6 +585,28 @@ function attemptResolvePendingAction(game, room){
   if(pa.payload && pa.payload.cardId) game.discard.push(pa.payload.cardId);
   pa.resolved = true; io.to(room).emit('action_resolved', { id: pa.id, type: pa.type, executed: executed });
   game.pendingAction = null; sendGameState(room);
+}
+
+function getPropertyKey(game, playerId, baseColor) {
+  const props = game.players[playerId].properties;
+  const meta = cardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor));
+  const setSize = meta ? meta.set_size : 99;
+
+  let currentKey = baseColor;
+  let suffix = 1;
+
+  // Ищем первый незаполненный слот для этого цвета
+  while (props[currentKey]) {
+    const count = props[currentKey].filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length;
+    if (count < setSize) {
+      return currentKey; // Нашли слот, где еще есть место
+    }
+    // Если этот слот полон, проверяем следующий (color_1, color_2...)
+    currentKey = `${baseColor}_${suffix}`;
+    suffix++;
+  }
+  
+  return currentKey; // Возвращаем новый ключ (например, red_1)
 }
 
 const PORT = process.env.PORT || 5001;

@@ -59,7 +59,7 @@ const btnCancelAction = document.getElementById('btn-cancel-action');
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const btnSendChat = document.getElementById('btn-send-chat');
-let unreadChatMessages = 0; // Переменная счетчика
+let unreadChatMessages = 0; 
 const chatUnreadBadge = document.getElementById('chat-unread-badge');
 
 const tabBtns = document.querySelectorAll('.tab-btn');
@@ -93,7 +93,7 @@ function playSound(audioObj) {
     sound.play().catch(err => console.log('Ожидание клика для разблокировки звука...'));
 }
 
-// === НОВАЯ СИСТЕМА УВЕДОМЛЕНИЙ ===
+// === СИСТЕМА УВЕДОМЛЕНИЙ ===
 function showNotification(message, type = 'error') {
     let container = document.getElementById('notification-container');
     if (!container) {
@@ -101,36 +101,25 @@ function showNotification(message, type = 'error') {
         container.id = 'notification-container';
         document.body.appendChild(container);
     }
-
     const toast = document.createElement('div');
     toast.className = `toast-notification ${type}`;
-    
     let icon = '⚠️';
     if (type === 'success') icon = '✅';
     if (type === 'info') icon = 'ℹ️';
-
     toast.innerHTML = `<span class="toast-icon">${icon}</span> <div>${message}</div>`;
-    
-    // Закрытие по клику
     toast.addEventListener('click', () => {
         toast.classList.add('toast-fade-out');
         setTimeout(() => toast.remove(), 300);
     });
-
     container.appendChild(toast);
     if (type === 'error') playSound(sfxAlert);
-
-    // Автоматическое затухание через 4 секунды
     setTimeout(() => {
         if (toast.parentNode) {
             toast.classList.add('toast-fade-out');
-            setTimeout(() => {
-                if (toast.parentNode) toast.remove();
-            }, 300);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 300);
         }
     }, 4000);
 }
-// ==================================
 
 fetch('/cards_data.json?v=' + new Date().getTime()).then(res => res.json()).then(data => { allCardsData = data; });
 
@@ -186,7 +175,6 @@ function updateMyProfileUI() {
     if (titleEl) titleEl.textContent = `Привет, ${myPlayerName}!`;
 }
 
-// --- Логика переключения вкладок ---
 tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
         tabBtns.forEach(b => b.classList.remove('active'));
@@ -375,16 +363,13 @@ btnEndTurn.addEventListener('click', () => {
 });
 
 socket.on('game_state', (state) => {
-    // Если id ходящего игрока изменился (кто-то завершил ход)
     if (state.turnPlayerId !== currentTurnPlayerId) { 
         if (currentTurnPlayerId !== null) { playSound(sfxAlert); }
         currentTurnPlayerId = state.turnPlayerId; 
         if (currentTurnPlayerId === myPlayerId) { showNotification('Ваш ход! Не забудьте взять карты.', 'info'); }
     }
     
-    // --- ТЕПЕРЬ БЕРЕМ ФЛАГ НАПРЯМУЮ С СЕРВЕРА ---
     hasDrawnThisTurn = state.hasDrawnThisTurn; 
-    
     currentGameState = state;
     btnStart.disabled = state.deckCount < 106 && state.deckCount > 0;
     renderGame();
@@ -431,7 +416,7 @@ document.addEventListener('pointerup', (e) => {
     
     const cardId = tempCard.dataset.id; 
     const origin = tempCard.dataset.origin; 
-    const currentColor = tempCard.dataset.currentColor;
+    const currentColorFull = tempCard.dataset.currentColorFull; // Добавлено для работы с суффиксами
     const cardData = allCardsData.find(c => c.id === cardId); 
     
     const tempOriginalRect = originalCardRect; 
@@ -464,10 +449,14 @@ document.addEventListener('pointerup', (e) => {
         const callback = (res) => { if (res && res.error) { showNotification(res.error, 'error'); returnCardToHand(); } };
         if (origin === 'table') {
             if (zone.id === 'player-properties') {
-                const targetStack = elementBelow?.closest('.card-stack'); let targetColor = null;
-                if (targetStack && targetStack.id.startsWith('prop-my-')) targetColor = targetStack.id.replace('prop-my-', '');
+                const targetStack = elementBelow?.closest('.card-stack'); let targetColorFull = null;
+                if (targetStack && targetStack.id.startsWith('prop-my-')) targetColorFull = targetStack.id.replace('prop-my-', '');
+                const targetColorBase = targetColorFull ? targetColorFull.split('_')[0] : null;
+
                 let availableColors = cardData.colors.includes('any') ? Object.keys(bgColors) : cardData.colors;
-                if (targetColor && targetColor !== currentColor && availableColors.includes(targetColor)) { socket.emit('flip_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId, newColor: targetColor }, callback); } else returnCardToHand();
+                if (targetColorFull && targetColorFull !== currentColorFull && availableColors.includes(targetColorBase)) { 
+                    socket.emit('flip_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId, newColor: targetColorFull }, callback); 
+                } else returnCardToHand();
             } else returnCardToHand(); 
             return;
         }
@@ -489,11 +478,13 @@ document.addEventListener('pointerup', (e) => {
                 socket.emit('intent_move_to_bank', { room: currentRoom, playerId: myPlayerId, cardId: cardId }, callback);
             } else if (zone.id === 'player-properties') {
                 if (cardData.type !== 'property' && cardData.type !== 'property_wild') { showNotification('Сюда можно класть только недвижимость!', 'error'); return returnCardToHand(); }
-                const targetStack = elementBelow?.closest('.card-stack'); let targetColor = null;
-                if (targetStack && targetStack.id.startsWith('prop-my-')) targetColor = targetStack.id.replace('prop-my-', '');
+                const targetStack = elementBelow?.closest('.card-stack'); let targetColorFull = null;
+                if (targetStack && targetStack.id.startsWith('prop-my-')) targetColorFull = targetStack.id.replace('prop-my-', '');
+                const targetColorBase = targetColorFull ? targetColorFull.split('_')[0] : null;
+
                 if (cardData && cardData.type === 'property_wild') {
                     let availableColors = cardData.colors.includes('any') ? Object.keys(bgColors) : cardData.colors;
-                    if (targetColor && availableColors.includes(targetColor)) socket.emit('play_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId, chosenColor: targetColor }, callback);
+                    if (targetColorFull && availableColors.includes(targetColorBase)) socket.emit('play_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId, chosenColor: targetColorFull }, callback);
                     else openWildColorModal(cardId, cardData, returnCardToHand, false);
                 } else socket.emit('play_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId }, callback);
             } else if (zone.id === 'action-zone') {
@@ -573,7 +564,8 @@ function showPaymentSelection(amountOwed, pendingId) {
     myPlayerInfo.bank.forEach(cardId => { const cData = allCardsData.find(c => c.id === cardId); const val = cData.bank_value !== undefined ? cData.bank_value : (cData.value || 0); totalAssetsValue += val; validPaymentCards.push({ id: cardId, value: val, color: null }); });
     for (const color in myPlayerInfo.properties) {
         const cards = myPlayerInfo.properties[color]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length;
-        const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(color));
+        const baseColor = color.split('_')[0];
+        const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor));
         if (propCount > 0 && propCount < (propCardInfo ? propCardInfo.set_size : 99)) {
             cards.forEach(cardId => { if(!cardId.startsWith('HOUSE') && !cardId.startsWith('HOTEL')) { const cData = allCardsData.find(c => c.id === cardId); totalAssetsValue += cData.bank_value || 0; validPaymentCards.push({ id: cardId, value: cData.bank_value || 0, color: color }); } });
         }
@@ -598,9 +590,9 @@ function showPaymentSelection(amountOwed, pendingId) {
     }; modalBody.appendChild(btnConfirmPayment); updateTitle();
 }
 
-function openWildColorModal(cardId, cardData, cancelCallback, isFlipping = false, currentColor = null) {
+function openWildColorModal(cardId, cardData, cancelCallback, isFlipping = false, currentColorBase = null) {
     targetModal.classList.remove('hidden'); modalBody.innerHTML = ''; modalTitle.textContent = isFlipping ? 'В какой цвет перевернуть?' : 'Как какой цвет выложить?'; btnCancelAction.style.display = 'block';
-    let availableColors = cardData.colors; if (availableColors.includes('any')) availableColors = Object.keys(bgColors); if (isFlipping && currentColor) availableColors = availableColors.filter(c => c !== currentColor);
+    let availableColors = cardData.colors; if (availableColors.includes('any')) availableColors = Object.keys(bgColors); if (isFlipping && currentColorBase) availableColors = availableColors.filter(c => c !== currentColorBase);
     availableColors.forEach(color => { const btn = document.createElement('button'); btn.className = 'modal-btn'; btn.style.background = bgColors[color] || '#3498db'; btn.style.textShadow = '1px 1px 2px black'; btn.textContent = `${colorNames[color] || color}`;
         btn.onclick = () => { targetModal.classList.add('hidden'); if (isFlipping) socket.emit('flip_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId, newColor: color }, (res)=>{if(res.error)cancelCallback();}); else socket.emit('play_property', { room: currentRoom, playerId: myPlayerId, cardId: cardId, chosenColor: color }, (res)=>{if(res.error)cancelCallback();}); }; modalBody.appendChild(btn);
     }); btnCancelAction.onclick = () => { targetModal.classList.add('hidden'); cancelCallback(); };
@@ -608,16 +600,66 @@ function openWildColorModal(cardId, cardData, cancelCallback, isFlipping = false
 
 function openTargetModal(actionCardId, cardData, actionType, cancelCallback) {
     targetModal.classList.remove('hidden'); modalBody.innerHTML = ''; btnCancelAction.style.display = 'block'; const myProps = currentGameState.players[myPlayerId].properties;
+    
     if (actionType === 'rent' || actionType === 'double_the_rent') {
-        modalTitle.textContent = 'За какой цвет возьмем ренту?'; let availableColors = (cardData.colors && cardData.colors.includes('any')) || actionType === 'double_the_rent' ? Object.keys(bgColors) : (cardData.colors || Object.keys(bgColors)); let validColors = availableColors.filter(c => myProps[c] && myProps[c].filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length > 0);
-        if (validColors.length === 0) { modalBody.innerHTML = '<p style="color:#e74c3c">У вас нет недвижимости этих цветов!</p>'; } 
-        else { validColors.forEach(color => { const btn = document.createElement('button'); btn.className = 'modal-btn'; btn.style.background = bgColors[color] || '#3498db'; btn.style.textShadow = '1px 1px 2px black'; const isUniversal = (cardData.colors && cardData.colors.includes('any')) || actionType === 'double_the_rent';
-                if (isUniversal) { btn.textContent = `Рента за ${colorNames[color] || color} (с одного)`; btn.onclick = () => { modalTitle.textContent = 'С кого возьмем ренту?'; modalBody.innerHTML = ''; for (const [pId, pInfo] of Object.entries(currentGameState.players)) { if (pId === myPlayerId) continue; const tBtn = document.createElement('button'); tBtn.className = 'modal-btn'; tBtn.textContent = `Ограбить: ${pInfo.name}`; tBtn.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { color: color, targets: [pId] } }); }; modalBody.appendChild(tBtn); } }; } 
-                else { btn.textContent = `Рента СО ВСЕХ за ${colorNames[color] || color}`; btn.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { color: color } }); }; } modalBody.appendChild(btn); }); }
+        modalTitle.textContent = 'За какой набор возьмем ренту?';
+        let hasOptions = false;
+
+        for (const propKey in myProps) {
+            const baseColor = propKey.split('_')[0]; 
+            const cards = myProps[propKey];
+            const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length;
+            
+            let colorMatches = (cardData.colors && cardData.colors.includes('any')) || 
+                               actionType === 'double_the_rent' || 
+                               (cardData.colors && cardData.colors.includes(baseColor));
+
+            if (propCount > 0 && colorMatches) {
+                hasOptions = true;
+                const btn = document.createElement('button');
+                btn.className = 'modal-btn';
+                btn.style.background = bgColors[baseColor] || '#3498db';
+                btn.style.textShadow = '1px 1px 2px black';
+                
+                const suffix = propKey.includes('_') ? ` (Набор #${parseInt(propKey.split('_')[1])+1})` : '';
+                btn.textContent = `${colorNames[baseColor] || baseColor}${suffix} - ${propCount} шт.`;
+
+                btn.onclick = () => {
+                    const isUniversal = (cardData.colors && cardData.colors.includes('any')) || actionType === 'double_the_rent';
+                    if (isUniversal) {
+                        modalTitle.textContent = 'С кого возьмем ренту?';
+                        modalBody.innerHTML = '';
+                        for (const [pId, pInfo] of Object.entries(currentGameState.players)) {
+                            if (pId === myPlayerId) continue;
+                            const tBtn = document.createElement('button');
+                            tBtn.className = 'modal-btn';
+                            tBtn.textContent = `Ограбить: ${pInfo.name}`;
+                            tBtn.onclick = () => {
+                                targetModal.classList.add('hidden');
+                                socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { color: propKey, targets: [pId] } });
+                            };
+                            modalBody.appendChild(tBtn);
+                        }
+                    } else {
+                        targetModal.classList.add('hidden');
+                        socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { color: propKey } });
+                    }
+                };
+                modalBody.appendChild(btn);
+            }
+        }
+        if (!hasOptions) modalBody.innerHTML = '<p style="color:#e74c3c">У вас нет подходящей недвижимости!</p>';
+
     } else if (actionType === 'house' || actionType === 'hotel') {
         modalTitle.textContent = `Куда поставим ${actionType === 'house' ? 'Дом' : 'Отель'}?`; let hasOptions = false;
-        for (const color in myProps) { const cards = myProps[color]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const hasHouse = cards.some(id => id.startsWith('HOUSE')); const hasHotel = cards.some(id => id.startsWith('HOTEL')); const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(color)); const setSize = propCardInfo ? propCardInfo.set_size : 99;
-            if (propCount >= setSize && color !== 'railroad' && color !== 'utility') { if (actionType === 'house' && !hasHouse) { hasOptions = true; createHouseHotelButton(color, actionCardId, cancelCallback); } else if (actionType === 'hotel' && hasHouse && !hasHotel) { hasOptions = true; createHouseHotelButton(color, actionCardId, cancelCallback); } } }
+        for (const propKey in myProps) { 
+            const baseColor = propKey.split('_')[0];
+            const cards = myProps[propKey]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const hasHouse = cards.some(id => id.startsWith('HOUSE')); const hasHotel = cards.some(id => id.startsWith('HOTEL')); const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor)); const setSize = propCardInfo ? propCardInfo.set_size : 99;
+            if (propCount >= setSize && baseColor !== 'railroad' && baseColor !== 'utility') { 
+                if (actionType === 'house' && !hasHouse) { hasOptions = true; createHouseHotelButton(propKey, baseColor, actionCardId, cancelCallback); } 
+                else if (actionType === 'hotel' && hasHouse && !hasHotel) { hasOptions = true; createHouseHotelButton(propKey, baseColor, actionCardId, cancelCallback); } 
+            } 
+        }
         if (!hasOptions) modalBody.innerHTML = `<p style="color:#e74c3c">Нет подходящих полных комплектов!</p>`;
     } else {
         modalTitle.textContent = 'Кого выберем целью?'; let opponentsCount = 0;
@@ -625,25 +667,208 @@ function openTargetModal(actionCardId, cardData, actionType, cancelCallback) {
             if (pId === myPlayerId) continue; opponentsCount++; const btn = document.createElement('button'); btn.className = 'modal-btn'; btn.textContent = `Игрок: ${pInfo.name}`;
             btn.onclick = () => {
                 if (actionType === 'debt_collector' || actionType === 'birthday') { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { target: pId } }); } 
-                else if (actionType === 'deal_breaker') { modalTitle.textContent = `Какой комплект украдем у ${pInfo.name}?`; modalBody.innerHTML = ''; let hasColors = false; for (const color in pInfo.properties) { const cards = pInfo.properties[color]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(color)); const setSize = propCardInfo ? propCardInfo.set_size : 99; if (propCount >= setSize) { hasColors = true; const btnColor = document.createElement('button'); btnColor.className = 'modal-btn'; btnColor.style.background = bgColors[color] || '#8e44ad'; btnColor.style.textShadow = '1px 1px 2px black'; btnColor.textContent = `Украсть набор: ${colorNames[color] || color}`; btnColor.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { target: pId, color: color } }); }; modalBody.appendChild(btnColor); } } if (!hasColors) modalBody.innerHTML = '<p style="color:#e74c3c">У игрока нет полных наборов!</p>'; } 
-                else if (actionType === 'sly_deal') { modalTitle.textContent = `Что украдем у ${pInfo.name}?`; modalBody.innerHTML = ''; let hasProperties = false; for (const color in pInfo.properties) { const cards = pInfo.properties[color]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(color)); const setSize = propCardInfo ? propCardInfo.set_size : 99; if (propCount > 0 && propCount < setSize) { cards.forEach(targetCardId => { if(typeof targetCardId === 'string' && (targetCardId.startsWith('HOUSE_') || targetCardId.startsWith('HOTEL_'))) return; hasProperties = true; const targetData = allCardsData.find(c => c.id === targetCardId); const cardBtn = document.createElement('button'); cardBtn.className = 'modal-btn'; cardBtn.style.background = bgColors[color] || '#27ae60'; cardBtn.style.textShadow = '1px 1px 2px black'; cardBtn.textContent = `Украсть: ${targetData ? targetData.name : targetCardId}`; cardBtn.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { target: pId, targetCardId: targetCardId } }); }; modalBody.appendChild(cardBtn); }); } } if (!hasProperties) modalBody.innerHTML = '<p style="color:#e74c3c">У игрока нет подходящей недвижимости!</p>'; } 
-                else if (actionType === 'forced_deal') { modalTitle.textContent = `Какую карту ЗАБЕРЕМ у ${pInfo.name}?`; modalBody.innerHTML = ''; let hasProperties = false; for (const color in pInfo.properties) { const cards = pInfo.properties[color]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(color)); const setSize = propCardInfo ? propCardInfo.set_size : 99; if (propCount > 0 && propCount < setSize) { cards.forEach(theirCardId => { if(typeof theirCardId === 'string' && (theirCardId.startsWith('HOUSE_') || theirCardId.startsWith('HOTEL_'))) return; hasProperties = true; const targetData = allCardsData.find(c => c.id === theirCardId); const cardBtn = document.createElement('button'); cardBtn.className = 'modal-btn'; cardBtn.style.background = bgColors[color] || '#2980b9'; cardBtn.style.textShadow = '1px 1px 2px black'; cardBtn.textContent = `Забрать: ${targetData ? targetData.name : theirCardId}`; cardBtn.onclick = () => chooseMyCardForForcedDeal(actionCardId, pId, theirCardId, cancelCallback); modalBody.appendChild(cardBtn); }); } } if (!hasProperties) modalBody.innerHTML = '<p style="color:#e74c3c">У игрока нет недвижимости для обмена!</p>'; }
+                else if (actionType === 'deal_breaker') { 
+                    modalTitle.textContent = `Какой комплект украдем у ${pInfo.name}?`; modalBody.innerHTML = ''; let hasColors = false; 
+                    for (const propKey in pInfo.properties) { 
+                        const baseColor = propKey.split('_')[0];
+                        const cards = pInfo.properties[propKey]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor)); const setSize = propCardInfo ? propCardInfo.set_size : 99; 
+                        if (propCount >= setSize) { 
+                            hasColors = true; const btnColor = document.createElement('button'); btnColor.className = 'modal-btn'; btnColor.style.background = bgColors[baseColor] || '#8e44ad'; btnColor.style.textShadow = '1px 1px 2px black'; 
+                            const suffix = propKey.includes('_') ? ` (Набор #${parseInt(propKey.split('_')[1])+1})` : '';
+                            btnColor.textContent = `Украсть набор: ${colorNames[baseColor] || baseColor}${suffix}`; 
+                            btnColor.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { target: pId, color: propKey } }); }; modalBody.appendChild(btnColor); 
+                        } 
+                    } 
+                    if (!hasColors) modalBody.innerHTML = '<p style="color:#e74c3c">У игрока нет полных наборов!</p>'; 
+                } 
+                else if (actionType === 'sly_deal') { 
+                    modalTitle.textContent = `Что украдем у ${pInfo.name}?`; modalBody.innerHTML = ''; let hasProperties = false; 
+                    for (const propKey in pInfo.properties) { 
+                        const baseColor = propKey.split('_')[0];
+                        const cards = pInfo.properties[propKey]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor)); const setSize = propCardInfo ? propCardInfo.set_size : 99; 
+                        if (propCount > 0 && propCount < setSize) { 
+                            cards.forEach(targetCardId => { 
+                                if(typeof targetCardId === 'string' && (targetCardId.startsWith('HOUSE_') || targetCardId.startsWith('HOTEL_'))) return; 
+                                hasProperties = true; const targetData = allCardsData.find(c => c.id === targetCardId); const cardBtn = document.createElement('button'); cardBtn.className = 'modal-btn'; cardBtn.style.background = bgColors[baseColor] || '#27ae60'; cardBtn.style.textShadow = '1px 1px 2px black'; cardBtn.textContent = `Украсть: ${targetData ? targetData.name : targetCardId}`; 
+                                cardBtn.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { target: pId, targetCardId: targetCardId } }); }; modalBody.appendChild(cardBtn); 
+                            }); 
+                        } 
+                    } 
+                    if (!hasProperties) modalBody.innerHTML = '<p style="color:#e74c3c">У игрока нет подходящей недвижимости!</p>'; 
+                } 
+                else if (actionType === 'forced_deal') { 
+                    modalTitle.textContent = `Какую карту ЗАБЕРЕМ у ${pInfo.name}?`; modalBody.innerHTML = ''; let hasProperties = false; 
+                    for (const propKey in pInfo.properties) { 
+                        const baseColor = propKey.split('_')[0];
+                        const cards = pInfo.properties[propKey]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor)); const setSize = propCardInfo ? propCardInfo.set_size : 99; 
+                        if (propCount > 0 && propCount < setSize) { 
+                            cards.forEach(theirCardId => { 
+                                if(typeof theirCardId === 'string' && (theirCardId.startsWith('HOUSE_') || theirCardId.startsWith('HOTEL_'))) return; 
+                                hasProperties = true; const targetData = allCardsData.find(c => c.id === theirCardId); const cardBtn = document.createElement('button'); cardBtn.className = 'modal-btn'; cardBtn.style.background = bgColors[baseColor] || '#2980b9'; cardBtn.style.textShadow = '1px 1px 2px black'; cardBtn.textContent = `Забрать: ${targetData ? targetData.name : theirCardId}`; 
+                                cardBtn.onclick = () => chooseMyCardForForcedDeal(actionCardId, pId, theirCardId, cancelCallback); modalBody.appendChild(cardBtn); 
+                            }); 
+                        } 
+                    } 
+                    if (!hasProperties) modalBody.innerHTML = '<p style="color:#e74c3c">У игрока нет недвижимости для обмена!</p>'; 
+                }
             }; modalBody.appendChild(btn);
         }
         if (opponentsCount === 0) modalBody.innerHTML = '<p style="color:#e74c3c">Нет других игроков для выбора!</p>';
     } btnCancelAction.onclick = () => { targetModal.classList.add('hidden'); cancelCallback(); };
 }
 
-function createHouseHotelButton(color, actionCardId, cancelCallback) { const btn = document.createElement('button'); btn.className = 'modal-btn'; btn.style.background = bgColors[color]; btn.style.textShadow = '1px 1px 2px black'; btn.textContent = `Добавить: ${colorNames[color] || color}`; btn.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { color: color } }); }; modalBody.appendChild(btn); }
-function chooseMyCardForForcedDeal(actionCardId, targetId, theirCardId, cancelCallback) { modalTitle.textContent = `Какую свою карту ОТДАДИМ взамен?`; modalBody.innerHTML = ''; let hasMyProperties = false; const myPlayerInfo = currentGameState.players[myPlayerId]; for (const color in myPlayerInfo.properties) { const cards = myPlayerInfo.properties[color]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(color)); const setSize = propCardInfo ? propCardInfo.set_size : 99; if (propCount > 0 && propCount < setSize) { cards.forEach(myCardId => { if(typeof myCardId === 'string' && (myCardId.startsWith('HOUSE_') || myCardId.startsWith('HOTEL_'))) return; hasMyProperties = true; const cardData = allCardsData.find(c => c.id === myCardId); const myCardBtn = document.createElement('button'); myCardBtn.className = 'modal-btn'; myCardBtn.style.background = bgColors[color] || '#d35400'; myCardBtn.style.textShadow = '1px 1px 2px black'; myCardBtn.textContent = `Отдать: ${cardData ? cardData.name : myCardId}`; myCardBtn.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { target: targetId, theirCardId: theirCardId, myCardId: myCardId } }); }; modalBody.appendChild(myCardBtn); }); } } if (!hasMyProperties) modalBody.innerHTML = '<p style="color:#e74c3c">У вас нет недвижимости, чтобы совершить обмен!</p>'; }
+function createHouseHotelButton(propKey, baseColor, actionCardId, cancelCallback) { 
+    const btn = document.createElement('button'); btn.className = 'modal-btn'; btn.style.background = bgColors[baseColor]; btn.style.textShadow = '1px 1px 2px black'; 
+    const suffix = propKey.includes('_') ? ` (Набор #${parseInt(propKey.split('_')[1])+1})` : '';
+    btn.textContent = `Добавить на: ${colorNames[baseColor] || baseColor}${suffix}`; 
+    btn.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { color: propKey } }); }; modalBody.appendChild(btn); 
+}
+
+function chooseMyCardForForcedDeal(actionCardId, targetId, theirCardId, cancelCallback) { 
+    modalTitle.textContent = `Какую свою карту ОТДАДИМ взамен?`; modalBody.innerHTML = ''; let hasMyProperties = false; const myPlayerInfo = currentGameState.players[myPlayerId]; 
+    for (const propKey in myPlayerInfo.properties) { 
+        const baseColor = propKey.split('_')[0];
+        const cards = myPlayerInfo.properties[propKey]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length; const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor)); const setSize = propCardInfo ? propCardInfo.set_size : 99; 
+        if (propCount > 0 && propCount < setSize) { 
+            cards.forEach(myCardId => { 
+                if(typeof myCardId === 'string' && (myCardId.startsWith('HOUSE_') || myCardId.startsWith('HOTEL_'))) return; 
+                hasMyProperties = true; const cardData = allCardsData.find(c => c.id === myCardId); const myCardBtn = document.createElement('button'); myCardBtn.className = 'modal-btn'; myCardBtn.style.background = bgColors[baseColor] || '#d35400'; myCardBtn.style.textShadow = '1px 1px 2px black'; myCardBtn.textContent = `Отдать: ${cardData ? cardData.name : myCardId}`; 
+                myCardBtn.onclick = () => { targetModal.classList.add('hidden'); socket.emit('play_action', { room: currentRoom, playerId: myPlayerId, cardId: actionCardId, opts: { target: targetId, theirCardId: theirCardId, myCardId: myCardId } }); }; modalBody.appendChild(myCardBtn); 
+            }); 
+        } 
+    } 
+    if (!hasMyProperties) modalBody.innerHTML = '<p style="color:#e74c3c">У вас нет недвижимости, чтобы совершить обмен!</p>'; 
+}
+
+// --- ФУНКЦИИ ДЛЯ ПЕРЕМЕЩЕНИЯ ДОМОВ/ОТЕЛЕЙ ---
+function openMoveBuildingModal(cardId, cardData, oldColorFull) {
+    const myProps = currentGameState.players[myPlayerId].properties;
+    
+    // Защита: Нельзя перенести Дом, если сверху стоит Отель
+    if (cardData.action_type === 'house' && myProps[oldColorFull].some(id => id.startsWith('HOTEL'))) {
+        showNotification('Сначала снимите Отель, прежде чем переносить Дом!', 'error');
+        return;
+    }
+
+    targetModal.classList.remove('hidden'); 
+    modalBody.innerHTML = ''; 
+    btnCancelAction.style.display = 'block';
+    modalTitle.textContent = `Куда переместить ${cardData.action_type === 'house' ? 'Дом' : 'Отель'}?`;
+    
+    let hasOptions = false;
+
+    for (const propKey in myProps) {
+        if (propKey === oldColorFull) continue; // На свой же цвет не переносим
+        
+        const baseColor = propKey.split('_')[0];
+        const cards = myProps[propKey];
+        const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length;
+        const hasHouse = cards.some(id => id.startsWith('HOUSE'));
+        const hasHotel = cards.some(id => id.startsWith('HOTEL'));
+        
+        const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor));
+        const setSize = propCardInfo ? propCardInfo.set_size : 99;
+
+        // Ищем другие полные комплекты
+        if (propCount >= setSize && baseColor !== 'railroad' && baseColor !== 'utility') {
+            if (cardData.action_type === 'house' && !hasHouse) {
+                hasOptions = true; 
+                createMoveBuildingButton(propKey, baseColor, cardId, oldColorFull);
+            } else if (cardData.action_type === 'hotel' && hasHouse && !hasHotel) {
+                hasOptions = true; 
+                createMoveBuildingButton(propKey, baseColor, cardId, oldColorFull);
+            }
+        }
+    }
+
+    if (!hasOptions) {
+        modalBody.innerHTML = `<p style="color:#e74c3c">У вас нет других подходящих полных комплектов для переноса!</p>`;
+    }
+
+    btnCancelAction.onclick = () => { targetModal.classList.add('hidden'); };
+}
+
+function createMoveBuildingButton(newColorFull, baseColor, cardId, oldColorFull) {
+    const btn = document.createElement('button'); 
+    btn.className = 'modal-btn'; 
+    btn.style.background = bgColors[baseColor] || '#3498db'; 
+    btn.style.textShadow = '1px 1px 2px black'; 
+    const suffix = newColorFull.includes('_') ? ` (Набор #${parseInt(newColorFull.split('_')[1])+1})` : '';
+    btn.textContent = `Переместить на: ${colorNames[baseColor] || baseColor}${suffix}`;
+    
+    btn.onclick = () => {
+        targetModal.classList.add('hidden');
+        socket.emit('move_building', { room: currentRoom, playerId: myPlayerId, cardId: cardId, oldColor: oldColorFull, newColor: newColorFull }, (res) => {
+            if (res && res.error) showNotification(res.error, 'error');
+        });
+    };
+    modalBody.appendChild(btn);
+}
 
 function createCardElement(cardId, assignedColor = null) {
-    const cardData = allCardsData.find(c => c.id === cardId); if (!cardData) return null;
+    const cardData = allCardsData.find(c => c.id === cardId);
+    
+    // Если данных нет, создаем "заглушку", чтобы карта не была невидимой
+    if (!cardData) {
+        const errorCard = document.createElement('div');
+        errorCard.className = 'card error-card';
+        errorCard.innerHTML = `<div class="card-title">ОШИБКА</div><div style="font-size:8px">ID: ${cardId}</div>`;
+        errorCard.style.background = 'black';
+        errorCard.dataset.id = cardId;
+        return errorCard;
+    }
+
     const cardEl = document.createElement('div'); cardEl.className = `card ${cardData.type}`; cardEl.dataset.id = cardId; cardEl.ondragstart = () => false;
     let displayName = cardData.name;
-    if (!displayName) { if (cardData.type === 'money') displayName = `Деньги ${cardData.value}M`; else if (cardData.type === 'action' || cardData.type === 'rent') { const act = { 'pass_go': 'Пройди Старт', 'sly_deal': 'Хитрая сделка', 'forced_deal': 'Вынужденная сделка', 'deal_breaker': 'Аферист', 'just_say_no': 'Просто скажи Нет', 'debt_collector': 'Сборщик долгов', 'birthday': 'День Рождения', 'double_the_rent': 'Удвой ренту', 'house': 'Дом', 'hotel': 'Отель', 'rent': 'Рента' }; displayName = act[cardData.action_type] || 'Действие'; } else displayName = 'Карта'; }
-    let colorsText = cardData.colors ? cardData.colors.map(c => colorNames[c] || c).join('/') : ''; let multiColorStripe = ''; 
-    if (assignedColor && assignedColor !== 'unassigned') { colorsText = `<b style="color: #2c3e50;">(Как: ${colorNames[assignedColor] || assignedColor})</b>`; if (bgColors[assignedColor]) { cardEl.style.borderTopColor = bgColors[assignedColor]; cardEl.style.borderTopWidth = '8px'; } } else if (cardData.colors && cardData.colors.length > 0) { if (cardData.colors.length === 1 && cardData.colors[0] !== 'any') { if (bgColors[cardData.colors[0]]) { cardEl.style.borderTopColor = bgColors[cardData.colors[0]]; } } else { let gradient = ''; if (cardData.colors[0] === 'any') { gradient = 'linear-gradient(to right, #e74c3c, #e67e22, #f1c40f, #2ecc71, #3498db, #8e44ad)'; } else if (cardData.colors.length === 2) { const c1 = bgColors[cardData.colors[0]] || '#000'; const c2 = bgColors[cardData.colors[1]] || '#000'; gradient = `linear-gradient(to right, ${c1} 50%, ${c2} 50%)`; } if (gradient) { multiColorStripe = `<span style="display: block; position: absolute; top: -5px; left: -2px; right: -2px; height: 5px; background: ${gradient}; border-top-left-radius: 6px; border-top-right-radius: 6px; z-index: 1;"></span>`; cardEl.style.borderTopColor = 'transparent'; } } }
+    
+    if (!displayName) { 
+        if (cardData.type === 'money') displayName = `Деньги ${cardData.value}M`; 
+        else if (cardData.type === 'action' || cardData.type === 'rent') { 
+            const act = { 'pass_go': 'Пройди Старт', 'sly_deal': 'Хитрая сделка', 'forced_deal': 'Вынужденная сделка', 'deal_breaker': 'Аферист', 'just_say_no': 'Просто скажи Нет', 'debt_collector': 'Сборщик долгов', 'birthday': 'День Рождения', 'double_the_rent': 'Удвой ренту', 'house': 'Дом', 'hotel': 'Отель', 'rent': 'Рента' }; 
+            displayName = act[cardData.action_type] || 'Действие'; 
+        } else displayName = 'Карта'; 
+    }
+    
+    let colorsText = cardData.colors ? cardData.colors.map(c => colorNames[c] || c).join('/') : ''; 
+    let multiColorStripe = ''; 
+
+    // 🔥 ОПРЕДЕЛЯЕМ БАЗОВЫЙ ЦВЕТ (убираем суффиксы _1, _2 и т.д. для стилей)
+    const baseColor = assignedColor ? assignedColor.split('_')[0] : null;
+
+    if (assignedColor && assignedColor !== 'unassigned') {
+        // Если цвет уже назначен (карта на столе), берем его имя из словаря
+        colorsText = `<b style="color: #2c3e50;">(Как: ${colorNames[baseColor] || baseColor})</b>`;
+        
+        if (bgColors[baseColor]) {
+            cardEl.style.borderTopColor = bgColors[baseColor];
+            cardEl.style.borderTopWidth = '8px';
+        }
+    } else if (cardData.colors && cardData.colors.length > 0) {
+        // Логика для карт в руке или без назначенного цвета (простая недвижимость и джокеры)
+        if (cardData.colors.length === 1 && cardData.colors[0] !== 'any') {
+            if (bgColors[cardData.colors[0]]) {
+                cardEl.style.borderTopColor = bgColors[cardData.colors[0]];
+            }
+        } else {
+            // Отрисовка градиента для джокеров
+            let gradient = '';
+            if (cardData.colors[0] === 'any') {
+                // Разноцветный (универсальный) джокер
+                gradient = 'linear-gradient(to right, #e74c3c, #e67e22, #f1c40f, #2ecc71, #3498db, #8e44ad)';
+            } else if (cardData.colors.length === 2) {
+                // Двухцветный джокер
+                const c1 = bgColors[cardData.colors[0]] || '#000';
+                const c2 = bgColors[cardData.colors[1]] || '#000';
+                gradient = `linear-gradient(to right, ${c1} 50%, ${c2} 50%)`;
+            }
+            
+            if (gradient) {
+                multiColorStripe = `<span style="display: block; position: absolute; top: -5px; left: -2px; right: -2px; height: 5px; background: ${gradient}; border-top-left-radius: 6px; border-top-right-radius: 6px; z-index: 1;"></span>`;
+                cardEl.style.borderTopColor = 'transparent';
+            }
+        }
+    }
+    
     let valText = cardData.bank_value !== undefined ? cardData.bank_value : (cardData.value || 0);
     let descText = cardData.description ? `<div style="font-size: 8px; color: #555; text-align: center; margin-top: 5px; position: relative; z-index: 2;">${cardData.description}</div>` : '';
     if (cardData.filename) { const imageUrl = cardData.filename.replace('/public', ''); cardEl.style.backgroundImage = `url('${imageUrl}')`; cardEl.style.backgroundSize = 'cover'; cardEl.style.backgroundPosition = 'center'; cardEl.style.backgroundRepeat = 'no-repeat'; cardEl.classList.add('has-image'); }
@@ -652,38 +877,62 @@ function createCardElement(cardId, assignedColor = null) {
     return cardEl;
 }
 
-function renderStack(cardsArr, stackId, containerEl, isMini = false, assignedColor = null, isMyTurn = false) {
+function renderStack(cardsArr, stackId, containerEl, isMini = false, assignedColorFull = null, isMyTurn = false) {
     if (cardsArr.length === 0) return;
     const stackEl = document.createElement('div'); stackEl.className = `card-stack ${isMini ? 'mini-stack' : ''}`; stackEl.id = stackId; if (expandedStacks.has(stackId)) stackEl.classList.add('expanded');
     stackEl.addEventListener('click', () => { if (expandedStacks.has(stackId)) { expandedStacks.delete(stackId); stackEl.classList.remove('expanded'); } else { expandedStacks.add(stackId); stackEl.classList.add('expanded'); } });
+    
     cardsArr.forEach(rawId => {
         let cardId = rawId; if (typeof rawId === 'string') { if (rawId.startsWith('HOUSE_')) cardId = rawId.replace('HOUSE_', ''); else if (rawId.startsWith('HOTEL_')) cardId = rawId.replace('HOTEL_', ''); }
-        const cardEl = createCardElement(cardId, assignedColor);
+        const cardEl = createCardElement(cardId, assignedColorFull);
+        
         if (cardEl) {
-            if (isMini) cardEl.classList.add('mini-card'); cardEl.dataset.origin = 'table'; cardEl.dataset.currentColor = assignedColor; const cardData = allCardsData.find(c => c.id === cardId);
-            if (isMyTurn && !isMini && cardData && cardData.type === 'property_wild') { 
-                cardEl.style.cursor = 'grab'; 
-                cardEl.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); openWildColorModal(cardId, cardData, () => {}, true, assignedColor); }); 
-                
-                cardEl.addEventListener('pointerdown', (e) => { 
-                    if (e.button === 2) return; 
-                    e.stopPropagation(); 
-                    if (!isMyTurn) return; 
+            if (isMini) cardEl.classList.add('mini-card'); 
+            cardEl.dataset.origin = 'table'; 
+            cardEl.dataset.currentColorFull = assignedColorFull; 
+            const cardData = allCardsData.find(c => c.id === cardId);
+            
+            if (isMyTurn && !isMini && cardData) { 
+                const baseColor = assignedColorFull ? assignedColorFull.split('_')[0] : null;
+
+                if (cardData.type === 'property_wild') {
+                    cardEl.style.cursor = 'grab'; 
+                    cardEl.addEventListener('contextmenu', (e) => { 
+                        e.preventDefault(); e.stopPropagation(); 
+                        openWildColorModal(cardId, cardData, () => {}, true, baseColor); 
+                    }); 
                     
-                    isDragging = false; 
-                    startX = e.clientX; 
-                    startY = e.clientY; 
-                    draggedCard = cardEl; 
-                    
-                    const rect = cardEl.getBoundingClientRect();
-                    shiftX = e.clientX - rect.left;
-                    shiftY = e.clientY - rect.top;
-                    originalCardRect = rect;
-                }); 
+                    cardEl.addEventListener('pointerdown', (e) => { 
+                        if (e.button === 2) return; 
+                        e.stopPropagation(); 
+                        if (!isMyTurn) return; 
+                        
+                        isDragging = false; 
+                        startX = e.clientX; 
+                        startY = e.clientY; 
+                        draggedCard = cardEl; 
+                        
+                        const rect = cardEl.getBoundingClientRect();
+                        shiftX = e.clientX - rect.left;
+                        shiftY = e.clientY - rect.top;
+                        originalCardRect = rect;
+                    }); 
+                } 
+                // --- Отработка клика по Дому/Отелю ---
+                else if (cardData.action_type === 'house' || cardData.action_type === 'hotel') {
+                    cardEl.style.cursor = 'pointer'; 
+                    cardEl.title = 'Правый клик — переместить здание';
+                    cardEl.addEventListener('contextmenu', (e) => { 
+                        e.preventDefault(); 
+                        e.stopPropagation(); 
+                        openMoveBuildingModal(cardId, cardData, assignedColorFull); 
+                    });
+                }
             }
             stackEl.appendChild(cardEl);
         }
-    }); containerEl.appendChild(stackEl);
+    }); 
+    containerEl.appendChild(stackEl);
 }
 
 function renderGame() {
@@ -720,11 +969,20 @@ function renderGame() {
             }); 
             
             handContainer.appendChild(cardEl); 
+        } else {
+            console.error(`[Data Error] Карта с ID ${cardId} не найдена в allCardsData!`);
         }
     });
 
+    const renderedCards = handContainer.querySelectorAll('.card').length;
+    if (renderedCards !== myPlayerInfo.hand.length) {
+        const errorMsg = `Ошибка синхронизации! В массиве ${myPlayerInfo.hand.length} карт, а отрисовано ${renderedCards}.`;
+        console.warn(errorMsg);
+        showNotification(errorMsg, 'error');
+    }
+
     bankCardsEl.innerHTML = ''; renderStack(myPlayerInfo.bank, `bank-my-${myPlayerId}`, bankCardsEl, false, null, isMyTurn);
-    propertyCardsEl.innerHTML = ''; for (const color in myPlayerInfo.properties) { renderStack(myPlayerInfo.properties[color], `prop-my-${color}`, propertyCardsEl, false, color, isMyTurn); }
+    propertyCardsEl.innerHTML = ''; for (const propKey in myPlayerInfo.properties) { renderStack(myPlayerInfo.properties[propKey], `prop-my-${propKey}`, propertyCardsEl, false, propKey, isMyTurn); }
     
     opponentsZone.innerHTML = '';
     for (const [pId, pInfo] of Object.entries(currentGameState.players)) {
@@ -732,7 +990,7 @@ function renderGame() {
         const oppEl = document.createElement('div'); oppEl.className = 'opponent-board'; const statusColor = pInfo.connected ? '#f39c12' : '#7f8c8d'; 
         oppEl.innerHTML = `<div class="opponent-header" style="color: ${statusColor}"><span class="opp-name">${pInfo.name} ${!pInfo.connected ? '(Откл)' : ''}</span><span class="opp-hand">В руке: ${pInfo.handCount} шт.</span></div><div class="opp-table"><div class="opp-bank"><div class="opp-title">Банк</div><div class="opp-cards" id="opp-bank-${pId}"></div></div><div class="opp-props"><div class="opp-title">Недвижимость</div><div class="opp-cards" id="opp-props-${pId}"></div></div></div>`; opponentsZone.appendChild(oppEl);
         renderStack(pInfo.bank, `bank-opp-${pId}`, document.getElementById(`opp-bank-${pId}`), true);
-        for (const color in pInfo.properties) { renderStack(pInfo.properties[color], `prop-opp-${color}-${pId}`, document.getElementById(`opp-props-${pId}`), true, color); }
+        for (const propKey in pInfo.properties) { renderStack(pInfo.properties[propKey], `prop-opp-${propKey}-${pId}`, document.getElementById(`opp-props-${pId}`), true, propKey); }
     }
     checkWinCondition();
 
@@ -742,9 +1000,10 @@ function renderGame() {
 function checkWinCondition() {
     for (const [pId, pInfo] of Object.entries(currentGameState.players)) {
         let fullSetsCount = 0;
-        for (const color in pInfo.properties) {
-            const cards = pInfo.properties[color]; const propCount = cards.filter(id => !(typeof id === 'string' && (id.startsWith('HOUSE') || id.startsWith('HOTEL')))).length;
-            const propCard = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(color)); const setSize = propCard ? propCard.set_size : 99;
+        for (const propKey in pInfo.properties) {
+            const baseColor = propKey.split('_')[0];
+            const cards = pInfo.properties[propKey]; const propCount = cards.filter(id => !(typeof id === 'string' && (id.startsWith('HOUSE') || id.startsWith('HOTEL')))).length;
+            const propCard = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor)); const setSize = propCard ? propCard.set_size : 99;
             if (propCount >= setSize && propCount > 0) fullSetsCount++;
         }
         
@@ -782,7 +1041,6 @@ function checkWinCondition() {
 const btnAttachFile = document.getElementById('btn-attach-file');
 const chatFileInput = document.getElementById('chat-file-input');
 
-// Обычная отправка текста
 function sendChatMessage() {
     const text = chatInput.value.trim();
     if (text && currentRoom && myPlayerId) { 
@@ -793,14 +1051,12 @@ function sendChatMessage() {
 btnSendChat.addEventListener('click', sendChatMessage);
 chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendChatMessage(); });
 
-// Отправка картинок/ГИФОК
 btnAttachFile.addEventListener('click', () => chatFileInput.click());
 
 chatFileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Ограничиваем вес файла до 8 МБ (хватит для любых гифок)
     if (file.size > 8 * 1024 * 1024) {
         showNotification('Файл слишком тяжелый! Максимум 8 МБ.', 'error');
         chatFileInput.value = '';
@@ -810,16 +1066,14 @@ chatFileInput.addEventListener('change', (e) => {
     const reader = new FileReader();
     reader.onload = (event) => {
         const base64Str = event.target.result;
-        // Отправляем картинку на сервер (если есть текст в поле ввода, отправим и его тоже)
         const text = chatInput.value.trim();
         socket.emit('send_chat_message', { room: currentRoom, playerId: myPlayerId, message: text, imageUrl: base64Str });
         chatInput.value = '';
-        chatFileInput.value = ''; // Сбрасываем инпут
+        chatFileInput.value = ''; 
     };
-    reader.readAsDataURL(file); // Конвертируем файл в понятный для сокетов формат
+    reader.readAsDataURL(file); 
 });
 
-// Получение сообщений
 socket.on('chat_message', ({ sender, text, imageUrl, isSystem }) => {
     const msgEl = document.createElement('div'); msgEl.className = 'chat-msg';
     
@@ -828,7 +1082,6 @@ socket.on('chat_message', ({ sender, text, imageUrl, isSystem }) => {
     } else { 
         let content = `<b>${sender}:</b> `;
         if (text) content += text;
-        // Если к сообщению прикреплена картинка/гифка, рисуем её
         if (imageUrl) {
             content += `<br><img src="${imageUrl}" class="chat-img-attachment" onclick="window.open('${imageUrl}', '_blank')" title="Нажмите, чтобы открыть">`;
         }
@@ -838,7 +1091,6 @@ socket.on('chat_message', ({ sender, text, imageUrl, isSystem }) => {
     chatMessages.appendChild(msgEl); 
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
-    // Логика счетчика (оставляем без изменений)
     if (roomChatEl.classList.contains('collapsed')) {
         unreadChatMessages++;
         if (chatUnreadBadge) {
@@ -922,8 +1174,17 @@ function animateDrawnCards(newCardIds) {
                 
                 flyingCard.style.transform = `translate(${currentX}px, ${currentY}px) rotate(${rotate}deg) scale(${scaleW}, ${scaleH})`;
                 
-                if (progress < 1) { requestAnimationFrame(step); } 
-                else { flyingCard.remove(); realCard.style.opacity = '1'; realCard.style.transform = 'scale(1.1)'; setTimeout(() => realCard.style.transform = 'scale(1)', 100); }
+                if (progress < 1) { 
+                    requestAnimationFrame(step); 
+                } else { 
+                    flyingCard.remove(); 
+                    if (realCard) {
+                        realCard.style.opacity = '1'; 
+                        realCard.style.visibility = 'visible'; 
+                        realCard.style.transform = 'scale(1.1)'; 
+                        setTimeout(() => realCard.style.transform = 'scale(1)', 100); 
+                    }
+                }
             }
             requestAnimationFrame(step); 
         }, index * 200); 
