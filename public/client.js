@@ -154,9 +154,13 @@ socket.on('connect', () => {
     if (savedName) {
         playerNameInput.value = savedName; 
         if (savedRoom && savedPid) {
+            // 🔥 МГНОВЕННО восстанавливаем ID до прихода окон действий от сервера (защита от краша) 🔥
+            myPlayerId = savedPid; 
+            myPlayerName = savedName; 
+            currentRoom = savedRoom;
+            
             socket.emit('join_room', { room: savedRoom, name: savedName, playerId: savedPid }, (res) => {
                 if (res.ok) {
-                    myPlayerId = res.playerId; myPlayerName = savedName; currentRoom = savedRoom;
                     socket.emit('login', savedName, (loginRes) => {
                         if (loginRes.ok) { myPlayerAvatar = loginRes.avatar || DEFAULT_AVATAR; updateMyProfileUI(); }
                     });
@@ -165,6 +169,7 @@ socket.on('connect', () => {
                 } else {
                     localStorage.removeItem('monopoly_currentRoom');
                     localStorage.removeItem('monopoly_playerId');
+                    myPlayerId = null; currentRoom = null;
                 }
             });
         }
@@ -590,12 +595,20 @@ function showPaymentSelection(amountOwed, pendingId) {
     modalBody.innerHTML = ''; const myPlayerInfo = currentGameState.players[myPlayerId];
     let validPaymentCards = []; let totalAssetsValue = 0;
     myPlayerInfo.bank.forEach(cardId => { const cData = allCardsData.find(c => c.id === cardId); const val = cData.bank_value !== undefined ? cData.bank_value : (cData.value || 0); totalAssetsValue += val; validPaymentCards.push({ id: cardId, value: val, color: null }); });
-    for (const color in myPlayerInfo.properties) {
-        const cards = myPlayerInfo.properties[color]; const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length;
-        const baseColor = color.split('_')[0];
-        const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor));
-        if (propCount > 0 && propCount < (propCardInfo ? propCardInfo.set_size : 99)) {
-            cards.forEach(cardId => { if(!cardId.startsWith('HOUSE') && !cardId.startsWith('HOTEL')) { const cData = allCardsData.find(c => c.id === cardId); totalAssetsValue += cData.bank_value || 0; validPaymentCards.push({ id: cardId, value: cData.bank_value || 0, color: color }); } });
+    for (const propKey in myPlayerInfo.properties) {
+        const cards = myPlayerInfo.properties[propKey]; 
+        const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length;
+        // const baseColor = color.split('_')[0];
+        // 🔥 Убрали лимит: теперь игрок ОБЯЗАН платить картами из собранного набора, если больше нечем!
+        if (propCount > 0) {
+            cards.forEach(cardId => { 
+                if(!cardId.startsWith('HOUSE') && !cardId.startsWith('HOTEL')) { 
+                    const cData = allCardsData.find(c => c.id === cardId); 
+                    const val = cData.bank_value !== undefined ? cData.bank_value : (cData.value || 0);
+                    totalAssetsValue += val; 
+                    validPaymentCards.push({ id: cardId, value: val, color: propKey }); 
+                } 
+            });
         }
     }
     let selectedCards = new Set(); let currentSelectedValue = 0;

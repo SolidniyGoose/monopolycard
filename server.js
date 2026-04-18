@@ -389,8 +389,9 @@ io.on('connection', socket => {
 
   socket.on('intent_discard', ({ room, playerId, cardId }, cb)=>{
     const game = games.get(room); if(!game) return;
-    if(game.turnOrder[game.turnIndex] !== playerId) return;
     
+    if(game.turnOrder[game.turnIndex] !== playerId) return;
+    if (game.pendingAction && !game.pendingAction.resolved) return cb && cb({ error: 'Дождитесь ответа на текущее действие!' });
     // --- ПРОВЕРКА НА 7 КАРТ (НА СЕРВЕРЕ) ---
     if(game.players[playerId].hand.length <= 7) {
         if(cb) cb({ error: 'В сброс можно выкидывать карты, только если их больше 7!' });
@@ -404,6 +405,7 @@ io.on('connection', socket => {
   socket.on('intent_move_to_bank', ({ room, playerId, cardId }, cb)=>{
     const game = games.get(room); if(!game) return;
     if(game.turnOrder[game.turnIndex] !== playerId || game.playsThisTurn >= 3) return;
+    if (game.pendingAction && !game.pendingAction.resolved) return cb && cb({ error: 'Дождитесь ответа на текущее действие!' });
     const ok = removeFromHand(game, playerId, cardId); if(!ok) return;
     game.players[playerId].bank.push(cardId); game.playsThisTurn++;
     sendGameState(room); if(cb) cb({ ok:true });
@@ -411,8 +413,9 @@ io.on('connection', socket => {
 
   socket.on('play_property', ({ room, playerId, cardId, chosenColor }, cb) => {
     const game = games.get(room); if(!game) return;
+    
     if(game.turnOrder[game.turnIndex] !== playerId || game.playsThisTurn >= 3) return;
-
+    if (game.pendingAction && !game.pendingAction.resolved) return cb && cb({ error: 'Дождитесь ответа на текущее действие!' });
     const meta = cardById(cardId);
     const color = chosenColor || (meta.colors ? meta.colors[0] : null);
     if(!color) return;
@@ -433,6 +436,7 @@ io.on('connection', socket => {
   socket.on('play_action', ({ room, playerId, cardId, opts }, cb)=>{
     const game = games.get(room); if(!game) return;
     if(game.turnOrder[game.turnIndex] !== playerId || game.playsThisTurn >= 3) return;
+    if (game.pendingAction && !game.pendingAction.resolved) return cb && cb({ error: 'Дождитесь ответа на текущее действие!' });
     const meta = cardById(cardId); if(!meta) return;
     
     // 1. Убираем карту из руки
@@ -516,12 +520,36 @@ io.on('connection', socket => {
 
   socket.on('flip_property', ({ room, playerId, cardId, newColor }, cb)=>{
     const game = games.get(room);
+    // 1. Блокируем читеров: менять цвет можно ТОЛЬКО в свой ход
+    if (game.turnOrder[game.turnIndex] !== playerId) {
+        return cb && cb({ error: 'Вы можете переворачивать карты только в свой ход!' });
+    }
+
+    // 2. 🔥 ТОТ САМЫЙ ЗАЩИТНИК 🔥 Блокируем стол, если висит окно атаки/ренты
+    if (game.pendingAction && !game.pendingAction.resolved) {
+        return cb && cb({ error: 'Дождитесь ответа на текущее действие!' });
+    }
+    // 3. Убираем карту из старой стопки
     for(const color of Object.keys(game.players[playerId].properties)){
       const idx = game.players[playerId].properties[color].indexOf(cardId);
-      if(idx !== -1){ game.players[playerId].properties[color].splice(idx, 1); break; }
+      if(idx !== -1){ 
+          game.players[playerId].properties[color].splice(idx, 1); 
+          break; 
+      }
     }
-    game.players[playerId].properties[newColor] = game.players[playerId].properties[newColor] || [];
-    game.players[playerId].properties[newColor].push(cardId); sendGameState(room); if(cb) cb({ ok:true });
+
+    // 4. 🔥 НОВАЯ ЛОГИКА СТОПОК: Ищем правильное место (например, если red заполнен, кладем в red_1)
+    // newColor с клиента приходит базовый (например, 'red' или 'lightblue')
+    const targetKey = getPropertyKey(game, playerId, newColor);
+
+    // Кладем перевернутую карту в правильную стопку
+    game.players[playerId].properties[targetKey] = game.players[playerId].properties[targetKey] || [];
+    game.players[playerId].properties[targetKey].push(cardId); 
+    
+    // Примечание: переворот карты — бесплатное действие по правилам, поэтому game.playsThisTurn мы НЕ увеличиваем!
+
+    sendGameState(room); 
+    if(cb) cb({ ok:true });
   });
 
   socket.on('intent_end_turn', ({ room, playerId }, cb)=>{
@@ -530,6 +558,7 @@ io.on('connection', socket => {
     
     // Проверка, что сейчас действительно ход этого игрока
     if (game.turnOrder[game.turnIndex] !== playerId) return;
+    if (game.pendingAction && !game.pendingAction.resolved) return cb && cb({ error: 'Дождитесь ответа на текущее действие!' });
 
     // --- СЕРВЕРНАЯ ПРОВЕРКА НА 7 КАРТ ---
     if (game.players[playerId].hand.length > 7) {
