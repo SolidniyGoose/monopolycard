@@ -303,7 +303,16 @@ io.on('connection', socket => {
          if (p.hand.length > 0) game.discard.push(...p.hand);
          if (p.bank.length > 0) game.discard.push(...p.bank);
          for (const color in p.properties) {
-             game.discard.push(...p.properties[color]);
+             p.properties[color].forEach(id => {
+                 if (typeof id === 'string') {
+                     // Убираем маркеры, возвращая в мусорку "чистую" карту здания
+                     if (id.startsWith('HOUSE_')) game.discard.push(id.replace('HOUSE_', ''));
+                     else if (id.startsWith('HOTEL_')) game.discard.push(id.replace('HOTEL_', ''));
+                     else game.discard.push(id);
+                 } else {
+                     game.discard.push(id);
+                 }
+             });
          }
          
          // 2. Удаляем игрока из памяти комнаты
@@ -444,7 +453,9 @@ io.on('connection', socket => {
     if(t === 'house' || t === 'hotel'){
       const marker = (t === 'house') ? `HOUSE_${cardId}` : `HOTEL_${cardId}`;
       game.players[playerId].properties[opts.color] = game.players[playerId].properties[opts.color] || [];
-      game.players[playerId].properties[opts.color].push(marker); finishPlay(); sendGameState(room); return cb && cb({ ok:true });
+      game.players[playerId].properties[opts.color].push(marker); 
+      // Убрали finishPlay(), чтобы физическая карта осталась на столе и не дублировалась в сбросе!
+      sendGameState(room); return cb && cb({ ok:true });
     }
     
     // ... дальше ваш остальной код (рента, сборщик долгов и т.д.)
