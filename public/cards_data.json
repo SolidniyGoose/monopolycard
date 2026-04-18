@@ -39,7 +39,9 @@
 
   { "id": "pw_brown_lightblue", "type": "property_wild", "colors": ["brown", "lightblue"], "set_size": null, "name": "Коричневый / Голубой", "bank_value": 1, "filename": "/public/cards/propertywild_brown_lightblue.png" },
   { "id": "pw_pink_orange_1", "type": "property_wild", "colors": ["pink", "orange"], "set_size": null, "name": "Розовый / Оранжевый", "bank_value": 2, "filename": "/public/cards/propertywild_pink_orange_1.png" },
+  { "id": "pw_pink_orange_2", "type": "property_wild", "colors": ["pink", "orange"], "set_size": null, "name": "Розовый / Оранжевый", "bank_value": 2, "filename": "/public/cards/propertywild_pink_orange_1.png" },
   { "id": "pw_red_yellow_1", "type": "property_wild", "colors": ["red", "yellow"], "set_size": null, "name": "Красный / Желтый", "bank_value": 3, "filename": "/public/cards/propertywild_red_yellow_1.png" },
+  { "id": "pw_red_yellow_2", "type": "property_wild", "colors": ["red", "yellow"], "set_size": null, "name": "Красный / Желтый", "bank_value": 3, "filename": "/public/cards/propertywild_red_yellow_1.png" },
   { "id": "pw_green_darkblue", "type": "property_wild", "colors": ["green", "darkblue"], "set_size": null, "name": "Зеленый / Темно-синий", "bank_value": 4, "filename": "/public/cards/propertywild_green_darkblue.png" },
   { "id": "pw_railroad_utility", "type": "property_wild", "colors": ["railroad", "utility"], "set_size": null, "name": "Станция / Предприятие", "bank_value": 2, "filename": "/public/cards/propertywild_railroad_utility.png" },
   { "id": "pw_lightblue_railroad", "type": "property_wild", "colors": ["lightblue", "railroad"], "set_size": null, "name": "Голубой / Станция", "bank_value": 4, "filename": "/public/cards/propertywild_lightblue_railroad.png" },
