@@ -596,11 +596,15 @@ function showPaymentSelection(amountOwed, pendingId) {
     let validPaymentCards = []; let totalAssetsValue = 0;
     myPlayerInfo.bank.forEach(cardId => { const cData = allCardsData.find(c => c.id === cardId); const val = cData.bank_value !== undefined ? cData.bank_value : (cData.value || 0); totalAssetsValue += val; validPaymentCards.push({ id: cardId, value: val, color: null }); });
     for (const propKey in myPlayerInfo.properties) {
+        const baseColor = propKey.split('_')[0]; 
         const cards = myPlayerInfo.properties[propKey]; 
         const propCount = cards.filter(id => !id.startsWith('HOUSE') && !id.startsWith('HOTEL')).length;
-        // const baseColor = color.split('_')[0];
-        // 🔥 Убрали лимит: теперь игрок ОБЯЗАН платить картами из собранного набора, если больше нечем!
-        if (propCount > 0) {
+        
+        const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor));
+        const setSize = propCardInfo ? propCardInfo.set_size : 99;
+
+        // 🔥 Возвращаем непробиваемую защиту: полный набор (propCount >= setSize) выбрать для оплаты НЕЛЬЗЯ
+        if (propCount > 0 && propCount < setSize) {
             cards.forEach(cardId => { 
                 if(!cardId.startsWith('HOUSE') && !cardId.startsWith('HOTEL')) { 
                     const cData = allCardsData.find(c => c.id === cardId); 
