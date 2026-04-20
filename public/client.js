@@ -592,9 +592,20 @@ socket.on('action_resolved', (res) => {
 });
 
 function showPaymentSelection(amountOwed, pendingId) {
-    modalBody.innerHTML = ''; const myPlayerInfo = currentGameState.players[myPlayerId];
-    let validPaymentCards = []; let totalAssetsValue = 0;
-    myPlayerInfo.bank.forEach(cardId => { const cData = allCardsData.find(c => c.id === cardId); const val = cData.bank_value !== undefined ? cData.bank_value : (cData.value || 0); totalAssetsValue += val; validPaymentCards.push({ id: cardId, value: val, color: null }); });
+    modalBody.innerHTML = ''; 
+    const myPlayerInfo = currentGameState.players[myPlayerId];
+    let validPaymentCards = []; 
+    let totalAssetsValue = 0;
+    
+    // 1. Считаем деньги в Банке
+    myPlayerInfo.bank.forEach(cardId => { 
+        const cData = allCardsData.find(c => c.id === cardId); 
+        const val = cData.bank_value !== undefined ? cData.bank_value : (cData.value || 0); 
+        totalAssetsValue += val; 
+        validPaymentCards.push({ id: cardId, value: val, color: null }); 
+    });
+    
+    // 2. Считаем Недвижимость (СТРОГАЯ ЗАЩИТА ПОЛНЫХ НАБОРОВ)
     for (const propKey in myPlayerInfo.properties) {
         const baseColor = propKey.split('_')[0]; 
         const cards = myPlayerInfo.properties[propKey]; 
@@ -603,36 +614,70 @@ function showPaymentSelection(amountOwed, pendingId) {
         const propCardInfo = allCardsData.find(c => c.type === 'property' && c.colors && c.colors.includes(baseColor));
         const setSize = propCardInfo ? propCardInfo.set_size : 99;
 
-        // 🔥 Возвращаем непробиваемую защиту: полный набор (propCount >= setSize) выбрать для оплаты НЕЛЬЗЯ
+        // 🔥 Если набор НЕ полный, разрешаем брать из него карты. Полные сеты игнорируются!
         if (propCount > 0 && propCount < setSize) {
             cards.forEach(cardId => { 
                 if(!cardId.startsWith('HOUSE') && !cardId.startsWith('HOTEL')) { 
                     const cData = allCardsData.find(c => c.id === cardId); 
-                    const val = cData.bank_value !== undefined ? cData.bank_value : (cData.value || 0);
-                    totalAssetsValue += val; 
-                    validPaymentCards.push({ id: cardId, value: val, color: propKey }); 
+                    if (cData) { // Защита на случай, если карты нет в базе
+                        const val = cData.bank_value !== undefined ? cData.bank_value : (cData.value || 0);
+                        totalAssetsValue += val; 
+                        validPaymentCards.push({ id: cardId, value: val, color: propKey }); 
+                    }
                 } 
             });
         }
     }
-    let selectedCards = new Set(); let currentSelectedValue = 0;
-    const updateTitle = () => { modalTitle.textContent = `К оплате: ${amountOwed}M | Выбрано: ${currentSelectedValue}M`; const canPay = currentSelectedValue >= amountOwed || (currentSelectedValue === totalAssetsValue && totalAssetsValue > 0) || totalAssetsValue === 0; btnConfirmPayment.disabled = !canPay; btnConfirmPayment.style.opacity = canPay ? '1' : '0.5'; };
-    const paymentGrid = document.createElement('div'); paymentGrid.style.cssText = 'display:flex; flex-wrap:wrap; justify-content:center; gap:5px; max-height:300px; overflow-y:auto; margin-bottom:15px;';
-    if (validPaymentCards.length === 0) { paymentGrid.innerHTML = '<p style="color:#e74c3c; width:100%;">Банкротство! Платить нечем.</p>'; } 
-    else {
+    
+    let selectedCards = new Set(); 
+    let currentSelectedValue = 0;
+    
+    const updateTitle = () => { 
+        modalTitle.textContent = `К оплате: ${amountOwed}M | Выбрано: ${currentSelectedValue}M`; 
+        const canPay = currentSelectedValue >= amountOwed || (currentSelectedValue === totalAssetsValue && totalAssetsValue > 0) || totalAssetsValue === 0; 
+        btnConfirmPayment.disabled = !canPay; 
+        btnConfirmPayment.style.opacity = canPay ? '1' : '0.5'; 
+    };
+    
+    const paymentGrid = document.createElement('div'); 
+    paymentGrid.style.cssText = 'display:flex; flex-wrap:wrap; justify-content:center; gap:5px; max-height:300px; overflow-y:auto; margin-bottom:15px;';
+    
+    if (validPaymentCards.length === 0) { 
+        paymentGrid.innerHTML = '<p style="color:#e74c3c; width:100%;">Банкротство! Доступных карт для оплаты нет.</p>'; 
+    } else {
         validPaymentCards.forEach(item => {
-            const cardEl = createCardElement(item.id, item.color); cardEl.style.transform = 'scale(0.8)'; cardEl.style.margin = '0'; cardEl.style.cursor = 'pointer'; cardEl.style.transition = 'all 0.2s'; cardEl.style.border = '2px solid transparent';
-            cardEl.onclick = () => { if (selectedCards.has(item.id)) { selectedCards.delete(item.id); currentSelectedValue -= item.value; cardEl.style.border = '2px solid transparent'; cardEl.style.boxShadow = 'none'; cardEl.style.transform = 'scale(0.8)'; } else { selectedCards.add(item.id); currentSelectedValue += item.value; cardEl.style.border = '2px solid #2ecc71'; cardEl.style.boxShadow = '0 0 10px #2ecc71'; cardEl.style.transform = 'scale(0.85)'; } updateTitle(); };
+            const cardEl = createCardElement(item.id, item.color); 
+            if(!cardEl) return;
+            cardEl.style.transform = 'scale(0.8)'; cardEl.style.margin = '0'; cardEl.style.cursor = 'pointer'; cardEl.style.transition = 'all 0.2s'; cardEl.style.border = '2px solid transparent';
+            
+            cardEl.onclick = () => { 
+                if (selectedCards.has(item.id)) { 
+                    selectedCards.delete(item.id); currentSelectedValue -= item.value; 
+                    cardEl.style.border = '2px solid transparent'; cardEl.style.boxShadow = 'none'; cardEl.style.transform = 'scale(0.8)'; 
+                } else { 
+                    selectedCards.add(item.id); currentSelectedValue += item.value; 
+                    cardEl.style.border = '2px solid #2ecc71'; cardEl.style.boxShadow = '0 0 10px #2ecc71'; cardEl.style.transform = 'scale(0.85)'; 
+                } 
+                updateTitle(); 
+            };
             paymentGrid.appendChild(cardEl);
         });
     }
+    
     modalBody.appendChild(paymentGrid);
-    const btnConfirmPayment = document.createElement('button'); btnConfirmPayment.className = 'modal-btn'; btnConfirmPayment.style.background = '#27ae60'; btnConfirmPayment.textContent = 'Подтвердить оплату';
+    
+    const btnConfirmPayment = document.createElement('button'); 
+    btnConfirmPayment.className = 'modal-btn'; 
+    btnConfirmPayment.style.background = '#27ae60'; 
+    btnConfirmPayment.textContent = 'Подтвердить оплату';
     btnConfirmPayment.onclick = () => { 
         playSound(sfxCash);
         socket.emit('respond_action', { room: currentRoom, playerId: myPlayerId, pendingId: pendingId, action: 'accept', paymentCards: Array.from(selectedCards) }); 
         closeNetworkModal(); 
-    }; modalBody.appendChild(btnConfirmPayment); updateTitle();
+    }; 
+    
+    modalBody.appendChild(btnConfirmPayment); 
+    updateTitle();
 }
 
 function openWildColorModal(cardId, cardData, cancelCallback, isFlipping = false, currentColorBase = null) {
